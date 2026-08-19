@@ -6,6 +6,11 @@ on:
     branches: ["main"]
     paths:
       - ".github/workflows/grand-line-duo-build-direct-v2.yml"
+  pull_request:
+    branches: ["main"]
+    paths:
+      - ".github/apk-build-trigger.txt"
+      - ".github/workflows/grand-line-duo-build-direct-v2.yml"
 
 permissions:
   contents: read
@@ -120,5 +125,3 @@ jobs:
             dist/GRAND-LINE-DUO-debug.apk.sha256
           if-no-files-found: error
           retention-days: 14
-
-# rebuild requested 2026-08-19
