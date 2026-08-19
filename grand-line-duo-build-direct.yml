@@ -1,0 +1,100 @@
+name: Build GRAND LINE DUO APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["main"]
+    paths:
+      - ".github/workflows/grand-line-duo-build-direct.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Restore project from bootstrap payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import base64, io, re, zipfile
+
+          source = Path(".github/workflows/grand-line-duo-bootstrap.yml")
+          text = source.read_text(encoding="utf-8")
+          match = re.search(
+              r"cat > /tmp/grand-line-duo\.zip\.b64 <<'PAYLOAD'\n(.*?)\n\s*PAYLOAD",
+              text,
+              re.S,
+          )
+          if not match:
+              raise SystemExit("Bootstrap payload not found")
+
+          payload = "".join(line.strip() for line in match.group(1).splitlines())
+          archive = base64.b64decode(payload, validate=True)
+
+          with zipfile.ZipFile(io.BytesIO(archive)) as zf:
+              zf.extractall(".")
+
+          Path(".github/workflows/android-apk.yml").unlink(missing_ok=True)
+          print("Project restored:", len(zf.namelist()), "entries")
+          PY
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle 9.5
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "9.5.0"
+
+      - name: Ensure Android SDK 37
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${ANDROID_HOME:-}"
+          SDKMANAGER="$(command -v sdkmanager || true)"
+          if [ -z "$SDKMANAGER" ]; then
+            SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          fi
+          test -x "$SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
+          "$SDKMANAGER" "platforms;android-37" "build-tools;36.0.0"
+          test -f "$ANDROID_HOME/platforms/android-37/android.jar"
+          test -x "$ANDROID_HOME/build-tools/36.0.0/aapt2"
+          gradle --version
+
+      - name: Run core reliability tests
+        run: bash tools/run-core-tests.sh
+
+      - name: Assemble debug APK
+        run: gradle --no-daemon --stacktrace :app:assembleDebug
+
+      - name: Prepare APK artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cp app/build/outputs/apk/debug/app-debug.apk dist/GRAND-LINE-DUO-debug.apk
+          (cd dist && sha256sum GRAND-LINE-DUO-debug.apk > GRAND-LINE-DUO-debug.apk.sha256)
+          cat dist/GRAND-LINE-DUO-debug.apk.sha256
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: grand-line-duo-debug-apk
+          path: |
+            dist/GRAND-LINE-DUO-debug.apk
+            dist/GRAND-LINE-DUO-debug.apk.sha256
+          if-no-files-found: error
+          retention-days: 14
