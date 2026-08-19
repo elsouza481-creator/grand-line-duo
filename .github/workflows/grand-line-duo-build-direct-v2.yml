@@ -24,34 +24,44 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Restore project from bootstrap payload
+      - name: Restore latest GRAND LINE DUO 1.0.0 source
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
-          import base64, io, re, zipfile
+          import base64, hashlib, io, re, shutil, zipfile
 
-          source = Path(".github/workflows/grand-line-duo-bootstrap.yml")
+          source = Path(".github/workflows/grand-line-duo-1.0.0-build.yml")
           text = source.read_text(encoding="utf-8")
           match = re.search(
-              r"cat > /tmp/grand-line-duo\.zip\.b64 <<'PAYLOAD'\n(.*?)\n\s*PAYLOAD",
+              r"cat > /tmp/grand-line-duo-1\.0\.0\.zip\.b64 <<'PAYLOAD'\n(.*?)\n\s*PAYLOAD",
               text,
               re.S,
           )
           if not match:
-              raise SystemExit("Bootstrap payload not found")
+              raise SystemExit("GRAND LINE DUO 1.0.0 payload not found")
 
           payload = "".join(line.strip() for line in match.group(1).splitlines())
           archive = base64.b64decode(payload, validate=True)
+          expected = "05937fdc8bbaeb9c226f1fc3a4ffee7b2c7b43488a62e8beb0a9a7d9f976b0f2"
+          actual = hashlib.sha256(archive).hexdigest()
+          if actual != expected:
+              raise SystemExit(f"Source SHA-256 mismatch: {actual}")
 
+          project = Path("project")
+          shutil.rmtree(project, ignore_errors=True)
+          project.mkdir(parents=True)
           with zipfile.ZipFile(io.BytesIO(archive)) as zf:
               names = zf.namelist()
-              zf.extractall(".")
+              zf.extractall(project)
 
-          Path(".github/workflows/android-apk.yml").unlink(missing_ok=True)
           print("Project restored:", len(names), "entries")
+          print("Source SHA-256:", actual)
           PY
+          test -f project/settings.gradle.kts
+          test -f project/app/build.gradle.kts
+          test -f project/tools/run-core-tests.sh
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -69,59 +79,50 @@ jobs:
         run: |
           set -euo pipefail
           test -n "${ANDROID_HOME:-}"
-
-          echo "ANDROID_HOME=$ANDROID_HOME"
-          echo "Installed platforms:"
-          ls -1 "$ANDROID_HOME/platforms" || true
-          echo "Installed build-tools:"
-          ls -1 "$ANDROID_HOME/build-tools" || true
-
           SDKMANAGER="$(command -v sdkmanager || true)"
           if [ -z "$SDKMANAGER" ]; then
             SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
           fi
           test -x "$SDKMANAGER"
-
           if [ ! -f "$ANDROID_HOME/platforms/android-37.0/android.jar" ] && \
              [ ! -f "$ANDROID_HOME/platforms/android-37/android.jar" ]; then
             yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
-            "$SDKMANAGER" "platforms;android-37.0" "build-tools;36.0.0"
+            "$SDKMANAGER" "platforms;android-37.0" "build-tools;36.0.0" || \
+              "$SDKMANAGER" "platforms;android-37" "build-tools;36.0.0"
           fi
-
-          if [ -f "$ANDROID_HOME/platforms/android-37.0/android.jar" ]; then
-            echo "Using Android SDK platform android-37.0"
-          elif [ -f "$ANDROID_HOME/platforms/android-37/android.jar" ]; then
-            echo "Using Android SDK platform android-37"
-          else
-            echo "Android API 37 platform was not found after setup."
-            "$SDKMANAGER" --list | grep -E "android-37|build-tools;36" || true
-            exit 1
-          fi
-
           test -x "$ANDROID_HOME/build-tools/36.0.0/aapt2"
+          if [ -f "$ANDROID_HOME/platforms/android-37.0/android.jar" ]; then
+            echo "Using Android SDK android-37.0"
+          else
+            test -f "$ANDROID_HOME/platforms/android-37/android.jar"
+            echo "Using Android SDK android-37"
+          fi
           gradle --version
 
-      - name: Run core reliability tests
+      - name: Run 272 core and gameplay tests
+        working-directory: project
         run: bash tools/run-core-tests.sh
 
-      - name: Assemble debug APK
+      - name: Assemble Android debug APK
+        working-directory: project
         run: gradle --no-daemon --stacktrace :app:assembleDebug
 
-      - name: Prepare APK artifact
+      - name: Prepare verified APK
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p dist
-          cp app/build/outputs/apk/debug/app-debug.apk dist/GRAND-LINE-DUO-debug.apk
-          (cd dist && sha256sum GRAND-LINE-DUO-debug.apk > GRAND-LINE-DUO-debug.apk.sha256)
-          cat dist/GRAND-LINE-DUO-debug.apk.sha256
+          cp project/app/build/outputs/apk/debug/app-debug.apk dist/GRAND-LINE-DUO-1.0.0.apk
+          sha256sum dist/GRAND-LINE-DUO-1.0.0.apk > dist/GRAND-LINE-DUO-1.0.0.apk.sha256
+          test -s dist/GRAND-LINE-DUO-1.0.0.apk
+          cat dist/GRAND-LINE-DUO-1.0.0.apk.sha256
 
-      - name: Upload APK
+      - name: Upload GRAND LINE DUO APK
         uses: actions/upload-artifact@v4
         with:
-          name: grand-line-duo-debug-apk-v2
+          name: GRAND-LINE-DUO-1.0.0-APK-verified
           path: |
-            dist/GRAND-LINE-DUO-debug.apk
-            dist/GRAND-LINE-DUO-debug.apk.sha256
+            dist/GRAND-LINE-DUO-1.0.0.apk
+            dist/GRAND-LINE-DUO-1.0.0.apk.sha256
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 30
