@@ -120,3 +120,5 @@ jobs:
             dist/GRAND-LINE-DUO-debug.apk.sha256
           if-no-files-found: error
           retention-days: 14
+
+# rebuild requested 2026-08-19
