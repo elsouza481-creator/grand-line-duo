@@ -9,6 +9,7 @@ import grandlineduo.game.combat.CombatStatus
 import grandlineduo.game.scenario.StormglassCayScenario
 import grandlineduo.game.powers.PowerTechniqueEngine
 import grandlineduo.game.ship.VoyageAction
+import grandlineduo.game.world.ExplorationCombatEngine
 import grandlineduo.game.world.ExplorationDirection
 import grandlineduo.game.world.ExplorationEngine
 import grandlineduo.game.world.ExplorationInteraction
@@ -39,6 +40,7 @@ data class ExplorationPresentation(
     val interaction: ExplorationInteraction?,
     val visibleQuestObjectives: Set<GridPosition> = emptySet(),
     val visiblePickups: Set<GridPosition> = emptySet(),
+    val visibleEnemies: Set<GridPosition> = emptySet(),
 )
 
 data class GamePresentation(
@@ -179,6 +181,10 @@ object GamePresenter {
             .filterNot { ExplorationLootEngine.isCollected(world, it.id) }
             .map { it.position }
             .toSet()
+        val visibleEnemies = map.enemies.values
+            .filterNot { ExplorationCombatEngine.isDefeated(world, it.id) }
+            .map { it.position }
+            .toSet()
 
         val actions = buildList {
             ExplorationDirection.entries.forEach { direction ->
@@ -257,6 +263,7 @@ object GamePresenter {
                 interaction = interaction,
                 visibleQuestObjectives = activeQuestObjectives,
                 visiblePickups = visiblePickups,
+                visibleEnemies = visibleEnemies,
             ),
         )
     }
