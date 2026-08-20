@@ -168,6 +168,13 @@ object ExplorationCombatEngine {
                 )
             }
         }
+        if (enemy.rank == ExplorationEnemyRank.FIELD_BOSS) {
+            rewarded = ExplorationQuestEngine.completeBossHunt(
+                rewarded,
+                survivingFighters.map { it.id },
+                enemy.id,
+            )
+        }
         return rewarded
     }
 
