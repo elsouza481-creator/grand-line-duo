@@ -1,6 +1,7 @@
 package grandlineduo.game.world
 
 import grandlineduo.core.model.WorldState
+import grandlineduo.game.combat.EnemyAttackType
 import java.util.Random
 import kotlin.math.abs
 
@@ -67,6 +68,7 @@ data class ExplorationEnemy(
     val rewardBerries: Long,
     val rewardItemId: String,
     val rewardItemAmount: Int,
+    val initialAttackType: EnemyAttackType,
 )
 
 data class ExplorationMap(
@@ -84,10 +86,6 @@ data class ExplorationMap(
     fun isWalkable(position: GridPosition): Boolean = tileAt(position).walkable
 }
 
-/**
- * Lightweight deterministic tile exploration used by the Android top-down hub.
- * Position is stored in authoritative world flags so LAN peers, save files and reconnects converge.
- */
 object ExplorationEngine {
     private const val WIDTH = 24
     private const val HEIGHT = 18
@@ -181,6 +179,7 @@ object ExplorationEngine {
             rewardBerries = profile.rewardBerries,
             rewardItemId = profile.rewardItemId,
             rewardItemAmount = profile.rewardItemAmount,
+            initialAttackType = profile.initialAttackType,
         )
 
         return ExplorationMap(
