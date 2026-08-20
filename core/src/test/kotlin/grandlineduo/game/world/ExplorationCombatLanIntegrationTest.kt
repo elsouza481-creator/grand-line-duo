@@ -36,7 +36,7 @@ object ExplorationCombatLanIntegrationTest {
                 islandId = "stormglass-cay",
                 players = mapOf("p1" to p1, "p2" to p2),
             )
-            val enemy = ExplorationEngine.mapFor(initial.campaignId, initial.islandId).enemies.values.single()
+            val enemy = ExplorationEngine.mapFor(initial.campaignId, initial.islandId).enemies.values.sortedBy { it.id }.first()
             initial = ExplorationEngine.place(initial, "p1", enemy.position)
             initial = ExplorationCombatEngine.startIfEncountered(initial, "p1")
             val host = HostReplica(initial)
@@ -63,7 +63,7 @@ object ExplorationCombatLanIntegrationTest {
                     "p2" to PlayerState("p2", "B", 40, 40, 0),
                 ),
             )
-            val enemy = ExplorationEngine.mapFor(initial.campaignId, initial.islandId).enemies.values.single()
+            val enemy = ExplorationEngine.mapFor(initial.campaignId, initial.islandId).enemies.values.sortedBy { it.id }.first()
             initial = ExplorationEngine.place(initial, "p2", enemy.position)
             initial = ExplorationCombatEngine.startIfEncountered(initial, "p2")
             initial = initial.copy(activeCombat = initial.activeCombat!!.copy(enemy = initial.activeCombat!!.enemy.copy(hp = 1)))
