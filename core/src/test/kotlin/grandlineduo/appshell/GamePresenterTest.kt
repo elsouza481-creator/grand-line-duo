@@ -92,7 +92,7 @@ object GamePresenterTest {
                 worldFlags = profiledWorld().worldFlags + ("sg.stage" to "COMPLETE"),
             )
             val map = ExplorationEngine.mapFor(world.campaignId, world.islandId)
-            val npc = map.npcs.values.single { it.questId != null }
+            val npc = map.npcs.values.single { it.questId?.startsWith("local-cache-") == true }
             val questId = npc.questId!!
             val objective = map.questObjectives.values.single { it.questId == questId }
 
