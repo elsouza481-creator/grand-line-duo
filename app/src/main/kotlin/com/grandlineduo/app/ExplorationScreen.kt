@@ -94,7 +94,11 @@ class ExplorationScreen(context: Context) : ScrollView(context) {
         bossIntel.visibility = if (bossLine == null) View.GONE else View.VISIBLE
         status.text = model.status.joinToString("\n")
         mapView.render(exploration)
-        locationHint.text = interactionLabel(exploration.interaction)
+        locationHint.text = if (exploration.trackedBossHuntTarget != null) {
+            "◎ Caçada ativa — siga o chefe B marcado com ! no mapa"
+        } else {
+            interactionLabel(exploration.interaction)
+        }
         renderContextual(model.actions)
         renderDpad(model.actions)
     }
@@ -209,7 +213,10 @@ private class ExplorationMapView(context: Context) : View(context) {
         val visibleBosses = presentation.visibleEnemies.count { position ->
             presentation.map.enemies[position]?.rank == ExplorationEnemyRank.FIELD_BOSS
         }
-        contentDescription = "Mapa da ilha. Posição ${presentation.playerPosition.x}, ${presentation.playerPosition.y}. $npcCount NPC. $activeObjectives objetivo ativo. $visiblePickups cache disponível. $visibleEnemies inimigo hostil, incluindo $visibleBosses chefe de campo."
+        val huntDescription = presentation.trackedBossHuntTarget?.let {
+            " Caçada rastreada no tile ${it.x}, ${it.y}."
+        }.orEmpty()
+        contentDescription = "Mapa da ilha. Posição ${presentation.playerPosition.x}, ${presentation.playerPosition.y}. $npcCount NPC. $activeObjectives objetivo ativo. $visiblePickups cache disponível. $visibleEnemies inimigo hostil, incluindo $visibleBosses chefe de campo.$huntDescription"
         invalidate()
     }
 
@@ -279,6 +286,7 @@ private class ExplorationMapView(context: Context) : View(context) {
             if (cell.position in model.visibleEnemies) {
                 val enemy = model.map.enemies[cell.position]
                 val fieldBoss = enemy?.rank == ExplorationEnemyRank.FIELD_BOSS
+                val trackedHunt = fieldBoss && cell.position == model.trackedBossHuntTarget
                 val radius = if (fieldBoss) size * 0.24f else size * 0.18f
                 val centerX = rect.left + size * 0.22f
                 val centerY = rect.bottom - size * 0.22f
@@ -290,10 +298,24 @@ private class ExplorationMapView(context: Context) : View(context) {
                     canvas.drawCircle(centerX, centerY, radius, stroke)
                     stroke.strokeWidth = resources.displayMetrics.density
                 }
+                if (trackedHunt) {
+                    stroke.color = WorldUiColors.QUEST.toInt()
+                    stroke.strokeWidth = maxOf(resources.displayMetrics.density * 2f, 3f)
+                    canvas.drawCircle(centerX, centerY, radius + size * 0.10f, stroke)
+                    stroke.strokeWidth = resources.displayMetrics.density
+                }
                 marker.color = if (fieldBoss) WorldUiColors.OUTLINE.toInt() else Color.WHITE
                 marker.textSize = if (fieldBoss) size * 0.30f else size * 0.26f
                 val baseline = centerY - (marker.ascent() + marker.descent()) / 2f
                 canvas.drawText(if (fieldBoss) "B" else "X", centerX, baseline, marker)
+                if (trackedHunt) {
+                    marker.color = WorldUiColors.QUEST.toInt()
+                    marker.textSize = size * 0.26f
+                    val huntX = centerX + size * 0.24f
+                    val huntY = centerY - size * 0.24f
+                    val huntBaseline = huntY - (marker.ascent() + marker.descent()) / 2f
+                    canvas.drawText("!", huntX, huntBaseline, marker)
+                }
             }
 
             model.map.npcs[cell.position]?.let {
