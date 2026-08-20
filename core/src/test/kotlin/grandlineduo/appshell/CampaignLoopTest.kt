@@ -8,6 +8,9 @@ import grandlineduo.game.InventoryEngine
 import grandlineduo.game.scenario.ScenarioState
 import grandlineduo.game.scenario.ScenarioStage
 import grandlineduo.game.ship.VoyageAction
+import grandlineduo.game.world.ExplorationDirection
+import grandlineduo.game.world.ExplorationEngine
+import grandlineduo.game.world.ExplorationInteraction
 import grandlineduo.test.assertEquals
 import grandlineduo.test.assertTrue
 import grandlineduo.test.test
@@ -82,6 +85,7 @@ object CampaignLoopTest {
                                     runCatching { session.submitWorldAction("SHOP_BUY", "bandage", 2) }
                                     repeat(2) { runCatching { session.submitInventoryAction("USE", "bandage") } }
                                 }
+                                moveP1ToDock(session)
                                 val sail = GamePresenter.present(session.worldState(), "p1").actions.first { it.kind == "CAMPAIGN" }
                                 session.advanceCampaign(sail.id)
                             }
@@ -111,5 +115,23 @@ object CampaignLoopTest {
                 assertTrue(visited.size >= 6)
             }
         }
+    }
+
+    private fun moveP1ToDock(session: GameSessionCoordinator) {
+        var guard = 0
+        while (ExplorationEngine.interactionAt(session.worldState(), "p1") != ExplorationInteraction.DOCK && guard++ < 40) {
+            val world = session.worldState()
+            val map = ExplorationEngine.mapFor(world.campaignId, world.islandId)
+            val current = ExplorationEngine.position(world, "p1")
+            val dock = map.interactions.entries.first { it.value == ExplorationInteraction.DOCK }.key
+            val direction = when {
+                current.x < dock.x -> ExplorationDirection.EAST
+                current.x > dock.x -> ExplorationDirection.WEST
+                current.y < dock.y -> ExplorationDirection.SOUTH
+                else -> ExplorationDirection.NORTH
+            }
+            session.submitWorldAction("EXPLORE_MOVE", direction.name, 999)
+        }
+        assertTrue(guard < 40, "P1 must be able to walk to the physical dock")
     }
 }
