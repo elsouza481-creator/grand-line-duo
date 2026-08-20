@@ -22,6 +22,8 @@ import grandlineduo.game.character.ProgressionEngine
 import grandlineduo.game.character.ProgressionResult
 import grandlineduo.game.character.Attribute
 import grandlineduo.game.character.Skill
+import grandlineduo.game.character.ClassMasteryEngine
+import grandlineduo.game.character.ClassPath
 import grandlineduo.game.scenario.ScenarioStage
 import grandlineduo.game.crew.CrewEngine
 import grandlineduo.game.crew.CrewRecruitmentCatalog
@@ -267,6 +269,19 @@ class StormglassGameplayCommandHandler(
                     is ProgressionResult.Success -> result.profile
                     is ProgressionResult.Rejected -> throw IllegalArgumentException("Skill progression rejected: ${result.error}")
                 }
+            }
+            "CHOOSE_CLASS" -> updateProfile(before, command.actorId) { profile ->
+                require(profile.classMastery == null) { "Primary class already chosen" }
+                val path = ClassPath.valueOf(command.target.uppercase())
+                profile.copy(classMastery = ClassMasteryEngine.start(path))
+            }
+            "TRAIN_CLASS" -> updateProfile(before, command.actorId) { profile ->
+                val mastery = profile.classMastery
+                    ?: throw IllegalArgumentException("Primary class must be chosen before class training")
+                val path = ClassPath.valueOf(command.target.uppercase())
+                profile.copy(
+                    classMastery = ClassMasteryEngine.train(mastery, path, CLASS_TRAINING_EFFORT),
+                )
             }
             "HAKI_AWAKEN" -> updateProfile(before, command.actorId) { profile ->
                 val type = HakiType.valueOf(command.target.uppercase())
@@ -576,6 +591,7 @@ class StormglassGameplayCommandHandler(
     }
 
     companion object {
+        private const val CLASS_TRAINING_EFFORT = 25L
         private val BASIC_COMBAT_ACTIONS = setOf(
             CombatActionType.ATTACK,
             CombatActionType.DEFEND,
