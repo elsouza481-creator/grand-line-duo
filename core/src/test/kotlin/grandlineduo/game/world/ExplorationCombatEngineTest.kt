@@ -21,9 +21,36 @@ object ExplorationCombatEngineTest {
             assertTrue(enemy.position !in a.npcs)
             assertTrue(enemy.position !in a.questObjectives)
             assertTrue(enemy.position !in a.pickups)
+            assertTrue(enemy.archetype in ExplorationEnemyArchetype.entries)
             assertTrue(enemy.maxHp > 0)
             assertTrue(enemy.attackPower > 0)
             assertTrue(enemy.rewardBerries > 0)
+        }
+
+        test("enemy archetypes have distinct combat roles and all scale with island danger") {
+            val lowDanger = ExplorationEnemyArchetype.entries.associateWith {
+                ExplorationEnemyCatalog.profile(it, danger = 2)
+            }
+            val highDanger = ExplorationEnemyArchetype.entries.associateWith {
+                ExplorationEnemyCatalog.profile(it, danger = 8)
+            }
+
+            assertEquals(
+                ExplorationEnemyArchetype.entries.size,
+                lowDanger.values.map { Triple(it.maxHp, it.attackPower, it.rewardBerries) }.toSet().size,
+            )
+            ExplorationEnemyArchetype.entries.forEach { archetype ->
+                val low = lowDanger.getValue(archetype)
+                val high = highDanger.getValue(archetype)
+                assertTrue(high.maxHp > low.maxHp)
+                assertTrue(high.attackPower > low.attackPower)
+                assertTrue(high.rewardBerries > low.rewardBerries)
+            }
+
+            val bruiser = ExplorationEnemyCatalog.profile(ExplorationEnemyArchetype.BRUISER, danger = 5)
+            val marksman = ExplorationEnemyCatalog.profile(ExplorationEnemyArchetype.MARKSMAN, danger = 5)
+            assertTrue(bruiser.maxHp > marksman.maxHp)
+            assertTrue(marksman.attackPower > bruiser.attackPower)
         }
 
         test("stepping onto a live hostile tile starts free roam combat but ordinary movement does not") {
