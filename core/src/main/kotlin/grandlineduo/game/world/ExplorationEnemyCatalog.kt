@@ -17,6 +17,7 @@ data class ExplorationEnemyProfile(
     val rewardItemId: String,
     val rewardItemAmount: Int = 1,
     val initialAttackType: EnemyAttackType,
+    val respawnSteps: Int,
 )
 
 object ExplorationEnemyCatalog {
@@ -30,6 +31,7 @@ object ExplorationEnemyCatalog {
                 rewardBerries = 400L + d * 140L,
                 rewardItemId = "ration",
                 initialAttackType = EnemyAttackType.HEAVY_STRIKE,
+                respawnSteps = 16 + d,
             )
             ExplorationEnemyArchetype.SKIRMISHER -> ExplorationEnemyProfile(
                 name = "Saqueadores da Maré",
@@ -38,6 +40,7 @@ object ExplorationEnemyCatalog {
                 rewardBerries = 350L + d * 150L,
                 rewardItemId = "bandage",
                 initialAttackType = EnemyAttackType.SWEEP,
+                respawnSteps = 12 + d,
             )
             ExplorationEnemyArchetype.MARKSMAN -> ExplorationEnemyProfile(
                 name = "Atiradores do Cais",
@@ -46,6 +49,7 @@ object ExplorationEnemyCatalog {
                 rewardBerries = 450L + d * 160L,
                 rewardItemId = "energy_tonic",
                 initialAttackType = EnemyAttackType.HEAVY_STRIKE,
+                respawnSteps = 14 + d,
             )
             ExplorationEnemyArchetype.OFFICER -> ExplorationEnemyProfile(
                 name = "Oficial Mercenário da Rota",
@@ -54,6 +58,7 @@ object ExplorationEnemyCatalog {
                 rewardBerries = 550L + d * 180L,
                 rewardItemId = if (d >= 8) "kairouseki_shard" else "energy_tonic",
                 initialAttackType = EnemyAttackType.SWEEP,
+                respawnSteps = 20 + d,
             )
         }
     }
