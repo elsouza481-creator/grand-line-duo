@@ -8,8 +8,10 @@ import grandlineduo.core.network.HostReplica
 import grandlineduo.core.network.LanClientConnection
 import grandlineduo.core.network.LanHostServer
 import grandlineduo.game.InventoryEngine
+import grandlineduo.game.combat.CombatActionType
 import grandlineduo.game.network.StormglassGameplayCommandHandler
 import grandlineduo.test.assertEquals
+import grandlineduo.test.assertTrue
 import grandlineduo.test.test
 
 object ExplorationQuestCommandIntegrationTest {
@@ -87,6 +89,88 @@ object ExplorationQuestCommandIntegrationTest {
 
                     assertEquals(host.state, clientReplica.state)
                     assertEquals(ExplorationQuestStatus.TURNED_IN, ExplorationQuestEngine.status(host.state, "p2", questId))
+                    assertEquals(ExplorationQuestStatus.AVAILABLE, ExplorationQuestEngine.status(host.state, "p1", questId))
+                }
+            }
+        }
+
+        test("P2 accepts defeats and turns in a field boss hunt over real TCP") {
+            var initial = WorldState(
+                campaignId = "boss-hunt-lan",
+                islandId = "meridian-vault",
+                partyBerries = 8_000,
+                players = mapOf(
+                    "p1" to PlayerState("p1", "A", 100_000, 100_000, 0),
+                    "p2" to PlayerState("p2", "B", 100_000, 100_000, 0),
+                ),
+            )
+            val map = ExplorationEngine.mapFor(initial.campaignId, initial.islandId)
+            val questId = ExplorationQuestEngine.bossHuntQuestId(initial.islandId)
+            val hunter = map.npcs.values.single { it.questId == questId }
+            val boss = map.enemies.values.single { it.rank == ExplorationEnemyRank.FIELD_BOSS }
+            initial = ExplorationEngine.place(initial, "p2", hunter.position)
+
+            val host = HostReplica(initial)
+            val handler = StormglassGameplayCommandHandler(host, seed = 43)
+            val clientReplica = ClientReplica(initial)
+
+            LanHostServer(host, port = 0, gameplayCommandHandler = handler).use { server ->
+                server.start()
+                LanClientConnection("127.0.0.1", server.boundPort, "p2", clientReplica).use { client ->
+                    client.connect()
+                    client.sendGameplay(
+                        GameplayWireCommand.WorldAction("p2-hunt-accept", "p2", "QUEST_ACCEPT", questId, 999)
+                    )
+                    assertEquals(ExplorationQuestStatus.ACTIVE, ExplorationQuestEngine.status(host.state, "p2", questId))
+                    assertEquals(ExplorationQuestStatus.AVAILABLE, ExplorationQuestEngine.status(host.state, "p1", questId))
+
+                    var sequence = 0
+                    fun moveP2(direction: ExplorationDirection) {
+                        client.sendGameplay(
+                            GameplayWireCommand.WorldAction(
+                                "p2-hunt-move-${sequence++}",
+                                "p2",
+                                "EXPLORE_MOVE",
+                                direction.name,
+                                999,
+                            )
+                        )
+                    }
+
+                    while (ExplorationEngine.position(clientReplica.state, "p2").x > map.spawn.x) moveP2(ExplorationDirection.WEST)
+                    while (ExplorationEngine.position(clientReplica.state, "p2").y < boss.position.y) moveP2(ExplorationDirection.SOUTH)
+                    while (ExplorationEngine.position(clientReplica.state, "p2").x < boss.position.x) moveP2(ExplorationDirection.EAST)
+
+                    assertTrue(ExplorationCombatEngine.isActive(host.state))
+                    var round = 0
+                    while (host.state.activeCombat != null && round < 200) {
+                        handler.handle(
+                            GameplayWireCommand.CombatAction("hunt-p1-${round}", "p1", CombatActionType.ATTACK.name),
+                            10_000L + round * 2L,
+                        )
+                        client.sendGameplay(
+                            GameplayWireCommand.CombatAction("hunt-p2-${round}", "p2", CombatActionType.ATTACK.name)
+                        )
+                        round++
+                    }
+                    assertEquals(null, host.state.activeCombat)
+                    assertEquals(ExplorationQuestStatus.OBJECTIVE_COMPLETE, ExplorationQuestEngine.status(host.state, "p2", questId))
+                    assertEquals(ExplorationQuestStatus.AVAILABLE, ExplorationQuestEngine.status(host.state, "p1", questId))
+
+                    while (ExplorationEngine.position(clientReplica.state, "p2").x > map.spawn.x) moveP2(ExplorationDirection.WEST)
+                    while (ExplorationEngine.position(clientReplica.state, "p2").y > hunter.position.y) moveP2(ExplorationDirection.NORTH)
+                    while (ExplorationEngine.position(clientReplica.state, "p2").x < hunter.position.x) moveP2(ExplorationDirection.EAST)
+
+                    val berriesBeforeTurnIn = host.state.partyBerries
+                    val rewardBefore = InventoryEngine.read(host.state, "p2").items[ExplorationQuestEngine.BOSS_REWARD_ITEM_ID] ?: 0
+                    client.sendGameplay(
+                        GameplayWireCommand.WorldAction("p2-hunt-turn-in", "p2", "QUEST_TURN_IN", questId, 999)
+                    )
+
+                    assertEquals(host.state, clientReplica.state)
+                    assertEquals(ExplorationQuestStatus.TURNED_IN, ExplorationQuestEngine.status(host.state, "p2", questId))
+                    assertEquals(berriesBeforeTurnIn + ExplorationQuestEngine.BOSS_REWARD_BERRIES, host.state.partyBerries)
+                    assertEquals(rewardBefore + 1, InventoryEngine.read(host.state, "p2").items[ExplorationQuestEngine.BOSS_REWARD_ITEM_ID])
                     assertEquals(ExplorationQuestStatus.AVAILABLE, ExplorationQuestEngine.status(host.state, "p1", questId))
                 }
             }
