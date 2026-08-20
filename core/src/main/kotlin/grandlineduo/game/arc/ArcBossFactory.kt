@@ -10,8 +10,9 @@ object ArcBossFactory {
         val p1 = world.players["p1"] ?: throw IllegalArgumentException("Missing p1")
         val p2 = world.players["p2"] ?: throw IllegalArgumentException("Missing p2")
         val spec = specFor(arc.archetype)
-        val hp = (spec.baseHp + arc.escalation * 8).coerceAtMost(220)
-        val attack = (spec.baseAttack + (arc.escalation + 1) / 2).coerceAtMost(28)
+        val scholarTier = ClassMasteryArcResolver.scholarAnalysisTier(arc.sharedFlags)
+        val hp = (spec.baseHp + arc.escalation * 8 - scholarTier * 6).coerceIn(1, 220)
+        val attack = (spec.baseAttack + (arc.escalation + 1) / 2 - scholarTier).coerceIn(1, 28)
         val random = Random(combatSeed(arc))
         val target = if (random.nextBoolean()) "p1" else "p2"
         val type = if (random.nextBoolean()) EnemyAttackType.HEAVY_STRIKE else EnemyAttackType.SWEEP
