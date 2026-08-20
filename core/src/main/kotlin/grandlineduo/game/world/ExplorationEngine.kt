@@ -72,6 +72,7 @@ data class ExplorationEnemy(
     val initialAttackType: EnemyAttackType,
     val respawnSteps: Int,
     val rank: ExplorationEnemyRank = ExplorationEnemyRank.COMMON,
+    val difficulty: ExplorationBossDifficulty = ExplorationBossDifficulty.NONE,
 )
 
 data class ExplorationMap(
@@ -215,6 +216,7 @@ object ExplorationEngine {
                 initialAttackType = profile.initialAttackType,
                 respawnSteps = profile.respawnSteps,
                 rank = ExplorationEnemyRank.FIELD_BOSS,
+                difficulty = profile.difficulty,
             )
         }
 
