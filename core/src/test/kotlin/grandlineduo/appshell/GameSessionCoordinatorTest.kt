@@ -4,10 +4,13 @@ import grandlineduo.core.network.LanDiscoveryListener
 import grandlineduo.game.character.Attribute
 import grandlineduo.game.character.CharacterDraft
 import grandlineduo.game.character.Skill
+import grandlineduo.game.combat.CombatActionType
 import grandlineduo.game.scenario.ScenarioStage
+import grandlineduo.game.ship.VoyageAction
 import grandlineduo.game.StormglassPersistenceAdapter
 import grandlineduo.game.world.ExplorationDirection
 import grandlineduo.game.world.ExplorationEngine
+import grandlineduo.game.world.ExplorationInteraction
 import grandlineduo.test.assertEquals
 import grandlineduo.test.assertTrue
 import grandlineduo.test.test
@@ -145,6 +148,53 @@ object GameSessionCoordinatorTest {
             }
         }
 
+        test("four player host voyage waits for p1 p2 p3 p4 actions over real TCP and converges") {
+            val host = GameSessionCoordinator()
+            val p2 = GameSessionCoordinator()
+            val p3 = GameSessionCoordinator()
+            val p4 = GameSessionCoordinator()
+            try {
+                host.startHost("Voyage Host", campaignId = "coord-four-voyage")
+                joinViaDiscovery(host, p2, freeUdpPort())
+                joinViaDiscovery(host, p3, freeUdpPort())
+                joinViaDiscovery(host, p4, freeUdpPort())
+                host.createCharacter(validDraft("Arlen"))
+                p2.createCharacter(validDraft("Mira"))
+                p3.createCharacter(validDraft("Rika"))
+                p4.createCharacter(validDraft("Bram"))
+
+                completeStormglassForLegacyPair(host, p2)
+                assertEquals(ScenarioStage.COMPLETE, StormglassPersistenceAdapter.decode(host.worldState()).scenario.stage)
+                assertTrue(moveP1ToDock(host), "P1 must reach the physical dock before a four-player voyage")
+
+                host.advanceCampaign()
+                assertEquals(setOf("p1", "p2", "p3", "p4"), host.worldState().activeVoyage?.participants)
+
+                host.submitVoyageAction(VoyageAction.HELM)
+                p2.refresh()
+                p2.submitVoyageAction(VoyageAction.PROTECT_SUPPLIES)
+                p3.refresh()
+                p3.submitVoyageAction(VoyageAction.REPAIR)
+                assertTrue(host.worldState().activeVoyage != null, "Voyage must wait for p4")
+                p4.refresh()
+                p4.submitVoyageAction(VoyageAction.LOOKOUT)
+
+                p2.refresh()
+                p3.refresh()
+                p4.refresh()
+                val authoritative = host.worldState()
+                assertEquals(null, authoritative.activeVoyage)
+                assertEquals(authoritative, p2.worldState())
+                assertEquals(authoritative, p3.worldState())
+                assertEquals(authoritative, p4.worldState())
+            } finally {
+                p4.close()
+                p3.close()
+                p2.close()
+                host.close()
+            }
+        }
+
         test("session coordinator exposes authoritative world management actions") {
             val root = Files.createTempDirectory("gld-world-action")
             GameSessionCoordinator(root).use { session ->
@@ -176,6 +226,63 @@ object GameSessionCoordinatorTest {
                 assertEquals(SessionMode.SOLO, second.mode)
             }
         }
+    }
+
+    private fun completeStormglassForLegacyPair(host: GameSessionCoordinator, p2: GameSessionCoordinator) {
+        var guard = 0
+        while (StormglassPersistenceAdapter.decode(host.worldState()).scenario.stage != ScenarioStage.COMPLETE && guard++ < 80) {
+            val restored = StormglassPersistenceAdapter.decode(host.worldState())
+            val combat = restored.combat
+            if (combat != null) {
+                if ("p1" !in combat.lockedActions && combat.players["p1"]?.hp ?: 0 > 0) {
+                    host.submitCombatAction(CombatActionType.SETUP)
+                }
+                p2.refresh()
+                val afterP1 = StormglassPersistenceAdapter.decode(host.worldState()).combat
+                if (afterP1 != null && "p2" !in afterP1.lockedActions && afterP1.players["p2"]?.hp ?: 0 > 0) {
+                    p2.submitCombatAction(CombatActionType.ATTACK)
+                }
+                val afterPair = StormglassPersistenceAdapter.decode(host.worldState()).combat
+                if (afterPair != null && afterPair.lockedActions.keys.containsAll(setOf("p1", "p2"))) {
+                    require(afterPair.players.keys == setOf("p1", "p2")) {
+                        "Legacy Stormglass combat must not wait for observing p3/p4"
+                    }
+                }
+                continue
+            }
+
+            val p1View = GamePresenter.present(host.worldState(), "p1")
+            if (p1View.screen == GameScreen.STORY && p1View.actions.isNotEmpty()) {
+                host.submitScenarioChoice(p1View.actions.first().id)
+            }
+            p2.refresh()
+            val p2View = GamePresenter.present(p2.worldState(), "p2")
+            if (p2View.screen == GameScreen.STORY && p2View.actions.isNotEmpty()) {
+                p2.submitScenarioChoice(p2View.actions.first().id)
+            }
+        }
+        assertTrue(guard < 80, "Four-player host must finish the legacy Stormglass prologue with p1/p2 decisions")
+    }
+
+    private fun moveP1ToDock(host: GameSessionCoordinator): Boolean {
+        var guard = 0
+        while (ExplorationEngine.interactionAt(host.worldState(), "p1") != ExplorationInteraction.DOCK && guard++ < 40) {
+            if (host.worldState().activeCombat != null) return false
+            val world = host.worldState()
+            val map = ExplorationEngine.mapFor(world.campaignId, world.islandId)
+            val current = ExplorationEngine.position(world, "p1")
+            val dock = map.interactions.entries.first { it.value == ExplorationInteraction.DOCK }.key
+            val direction = when {
+                current.x < dock.x -> ExplorationDirection.EAST
+                current.x > dock.x -> ExplorationDirection.WEST
+                current.y < dock.y -> ExplorationDirection.SOUTH
+                else -> ExplorationDirection.NORTH
+            }
+            host.submitWorldAction("EXPLORE_MOVE", direction.name, 999)
+            if (host.worldState().activeCombat != null) return false
+        }
+        assertTrue(guard < 40, "P1 must be able to walk to the physical dock")
+        return true
     }
 
     private fun joinViaDiscovery(host: GameSessionCoordinator, client: GameSessionCoordinator, discoveryPort: Int) {
