@@ -16,6 +16,7 @@ import android.widget.TextView
 import grandlineduo.appshell.ExplorationPresentation
 import grandlineduo.appshell.GameAction
 import grandlineduo.appshell.GamePresentation
+import grandlineduo.game.world.ExplorationEnemyRank
 import grandlineduo.game.world.ExplorationInteraction
 import grandlineduo.game.world.ExplorationTile
 import grandlineduo.game.world.ExplorationViewport
@@ -42,6 +43,7 @@ private object WorldUiColors {
     const val QUEST = 0xFFFF8F4EL
     const val LOOT = 0xFFF1B84BL
     const val ENEMY = 0xFFD76757L
+    const val FIELD_BOSS = 0xFFF1B84BL
 }
 
 class ExplorationScreen(context: Context) : ScrollView(context) {
@@ -56,6 +58,12 @@ class ExplorationScreen(context: Context) : ScrollView(context) {
     private val title = text(24f, bold = true)
     private val body = text(14f)
     private val status = text(13f)
+    private val bossIntel = text(13f, bold = true).apply {
+        setTextColor(WorldUiColors.ACCENT.toInt())
+        setBackgroundColor(WorldUiColors.PANEL_ALT.toInt())
+        setPadding(dp(12), dp(10), dp(12), dp(10))
+        visibility = View.GONE
+    }
     private val mapView = ExplorationMapView(context)
     private val locationHint = text(13f, bold = true)
     private val contextual = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
@@ -67,6 +75,7 @@ class ExplorationScreen(context: Context) : ScrollView(context) {
         root.addView(title)
         root.addView(body, marginTop(6))
         root.addView(status, marginTop(10))
+        root.addView(bossIntel, marginTop(10))
         root.addView(mapView, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(330)).apply {
             topMargin = dp(14)
         })
@@ -79,7 +88,10 @@ class ExplorationScreen(context: Context) : ScrollView(context) {
     fun render(model: GamePresentation) {
         val exploration = requireNotNull(model.exploration) { "ExplorationScreen requires exploration presentation" }
         title.text = model.title
-        body.text = model.body
+        val bossLine = model.body.lineSequence().firstOrNull { it.startsWith("CHEFE DE CAMPO") }
+        body.text = model.body.lineSequence().filterNot { it == bossLine }.joinToString("\n")
+        bossIntel.text = bossLine.orEmpty()
+        bossIntel.visibility = if (bossLine == null) View.GONE else View.VISIBLE
         status.text = model.status.joinToString("\n")
         mapView.render(exploration)
         locationHint.text = interactionLabel(exploration.interaction)
@@ -143,7 +155,7 @@ class ExplorationScreen(context: Context) : ScrollView(context) {
         ExplorationInteraction.TRAINING -> "✦ Área de treino — progressão disponível aqui"
         ExplorationInteraction.SHIP -> "▰ Navio — manutenção e melhorias disponíveis"
         ExplorationInteraction.CREW -> "● Tripulação — gestão dos companheiros"
-        null -> "Caminhe pelas ruas. NPCs têm !, objetivos ativos ?, caches ◆ e inimigos hostis X."
+        null -> "Caminhe pelas ruas. NPCs têm !, objetivos ativos ?, caches ◆, inimigos X e chefes de campo B."
     }
 
     private fun actionButton(label: String, click: () -> Unit) = Button(context).apply {
@@ -194,7 +206,10 @@ private class ExplorationMapView(context: Context) : View(context) {
         val activeObjectives = presentation.visibleQuestObjectives.size
         val visiblePickups = presentation.visiblePickups.size
         val visibleEnemies = presentation.visibleEnemies.size
-        contentDescription = "Mapa da ilha. Posição ${presentation.playerPosition.x}, ${presentation.playerPosition.y}. $npcCount NPC. $activeObjectives objetivo ativo. $visiblePickups cache disponível. $visibleEnemies inimigo hostil."
+        val visibleBosses = presentation.visibleEnemies.count { position ->
+            presentation.map.enemies[position]?.rank == ExplorationEnemyRank.FIELD_BOSS
+        }
+        contentDescription = "Mapa da ilha. Posição ${presentation.playerPosition.x}, ${presentation.playerPosition.y}. $npcCount NPC. $activeObjectives objetivo ativo. $visiblePickups cache disponível. $visibleEnemies inimigo hostil, incluindo $visibleBosses chefe de campo."
         invalidate()
     }
 
@@ -262,12 +277,23 @@ private class ExplorationMapView(context: Context) : View(context) {
             }
 
             if (cell.position in model.visibleEnemies) {
-                fill.color = WorldUiColors.ENEMY.toInt()
-                canvas.drawCircle(rect.left + size * 0.22f, rect.bottom - size * 0.22f, size * 0.18f, fill)
-                marker.color = Color.WHITE
-                marker.textSize = size * 0.26f
-                val baseline = rect.bottom - size * 0.22f - (marker.ascent() + marker.descent()) / 2f
-                canvas.drawText("X", rect.left + size * 0.22f, baseline, marker)
+                val enemy = model.map.enemies[cell.position]
+                val fieldBoss = enemy?.rank == ExplorationEnemyRank.FIELD_BOSS
+                val radius = if (fieldBoss) size * 0.24f else size * 0.18f
+                val centerX = rect.left + size * 0.22f
+                val centerY = rect.bottom - size * 0.22f
+                fill.color = if (fieldBoss) WorldUiColors.FIELD_BOSS.toInt() else WorldUiColors.ENEMY.toInt()
+                canvas.drawCircle(centerX, centerY, radius, fill)
+                if (fieldBoss) {
+                    stroke.color = Color.WHITE
+                    stroke.strokeWidth = maxOf(resources.displayMetrics.density * 1.4f, 2f)
+                    canvas.drawCircle(centerX, centerY, radius, stroke)
+                    stroke.strokeWidth = resources.displayMetrics.density
+                }
+                marker.color = if (fieldBoss) WorldUiColors.OUTLINE.toInt() else Color.WHITE
+                marker.textSize = if (fieldBoss) size * 0.30f else size * 0.26f
+                val baseline = centerY - (marker.ascent() + marker.descent()) / 2f
+                canvas.drawText(if (fieldBoss) "B" else "X", centerX, baseline, marker)
             }
 
             model.map.npcs[cell.position]?.let {
