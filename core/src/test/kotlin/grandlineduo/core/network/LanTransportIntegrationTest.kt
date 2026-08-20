@@ -102,5 +102,44 @@ object LanTransportIntegrationTest {
                 intruder.close()
             }
         }
+
+        test("LAN host keeps p2 p3 and p4 connected concurrently and reconnects one peer independently") {
+            val initial = WorldState(campaignId = "lan-four-player-transport")
+            val hostReplica = HostReplica(initial)
+            LanHostServer(hostReplica, port = 0).use { server ->
+                server.start()
+                val p2Replica = ClientReplica(initial)
+                val p3Replica = ClientReplica(initial)
+                val p4Replica = ClientReplica(initial)
+                LanClientConnection("127.0.0.1", server.boundPort, "p2", p2Replica).use { p2 ->
+                    LanClientConnection("127.0.0.1", server.boundPort, "p3", p3Replica).use { p3 ->
+                        LanClientConnection("127.0.0.1", server.boundPort, "p4", p4Replica).use { p4 ->
+                            p2.connect()
+                            p3.connect()
+                            p4.connect()
+
+                            assertEquals(setOf("p2", "p3", "p4"), server.activeClientIds)
+                            assertEquals(3, server.activeClientCount)
+
+                            hostReplica.submit(GrantBerriesCommand("four-host-change", "p1", 77), 4000)
+                            p2.refresh()
+                            p3.refresh()
+                            p4.refresh()
+                            assertEquals(hostReplica.state, p2Replica.state)
+                            assertEquals(hostReplica.state, p3Replica.state)
+                            assertEquals(hostReplica.state, p4Replica.state)
+
+                            p3.disconnect()
+                            Thread.sleep(25)
+                            assertEquals(setOf("p2", "p4"), server.activeClientIds)
+
+                            p3.connect()
+                            assertEquals(setOf("p2", "p3", "p4"), server.activeClientIds)
+                            assertEquals(3, server.activeClientCount)
+                        }
+                    }
+                }
+            }
+        }
     }
 }
