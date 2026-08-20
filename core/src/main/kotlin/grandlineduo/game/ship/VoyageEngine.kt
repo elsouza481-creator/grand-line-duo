@@ -1,5 +1,6 @@
 package grandlineduo.game.ship
 
+import grandlineduo.game.character.CharacterProfile
 import grandlineduo.game.crew.CrewEngine
 import grandlineduo.game.crew.CrewRole
 import grandlineduo.game.crew.CrewState
@@ -40,10 +41,20 @@ object VoyageEngine {
         return encounter.copy(actions = encounter.actions + (playerId to action))
     }
 
-    fun resolveIfReady(ship: ShipState, encounter: VoyageEncounter, crew: CrewState = CrewState()): VoyageResolution? =
-        if (encounter.actions.keys == players) resolve(ship, encounter, crew) else null
+    fun resolveIfReady(
+        ship: ShipState,
+        encounter: VoyageEncounter,
+        crew: CrewState = CrewState(),
+        profiles: Map<String, CharacterProfile?> = emptyMap(),
+    ): VoyageResolution? =
+        if (encounter.actions.keys == players) resolve(ship, encounter, crew, profiles) else null
 
-    fun resolve(ship: ShipState, encounter: VoyageEncounter, crew: CrewState = CrewState()): VoyageResolution {
+    fun resolve(
+        ship: ShipState,
+        encounter: VoyageEncounter,
+        crew: CrewState = CrewState(),
+        profiles: Map<String, CharacterProfile?> = emptyMap(),
+    ): VoyageResolution {
         require(encounter.actions.keys == players) { "Both voyage actions must be locked before resolution" }
         val incident = encounter.incident
         val actions = encounter.actions.values.toSet()
@@ -55,31 +66,32 @@ object VoyageEngine {
         var hullMitigation = 0
         var supplyMitigation = 0
 
-        encounter.actions.values.forEach { action ->
+        encounter.actions.forEach { (playerId, action) ->
             val crewBonus = CrewEngine.bestCompetence(crew, roleFor(action))
+            val classBonus = ClassMasteryVoyageResolver.resolve(profiles[playerId], action)
             when (action) {
                 VoyageAction.HELM -> {
-                    actionScore += ship.maneuverability * 2 + crewBonus * 2
-                    hullMitigation += ship.maneuverability + ship.speed / 2 + crewBonus * 2
+                    actionScore += ship.maneuverability * 2 + crewBonus * 2 + classBonus.actionScore
+                    hullMitigation += ship.maneuverability + ship.speed / 2 + crewBonus * 2 + classBonus.hullMitigation
                 }
                 VoyageAction.LOOKOUT -> {
-                    actionScore += 4 + crewBonus * 2
-                    hullMitigation += 1 + crewBonus
-                    supplyMitigation += 2 + crewBonus
+                    actionScore += 4 + crewBonus * 2 + classBonus.actionScore
+                    hullMitigation += 1 + crewBonus + classBonus.hullMitigation
+                    supplyMitigation += 2 + crewBonus + classBonus.supplyMitigation
                 }
                 VoyageAction.CANNONS -> {
-                    actionScore += ship.artillery * 3 + crewBonus * 2
+                    actionScore += ship.artillery * 3 + crewBonus * 2 + classBonus.actionScore
                     if (incident.type in setOf(VoyageIncidentType.SEA_KING, VoyageIncidentType.PIRATE_AMBUSH)) {
-                        hullMitigation += ship.artillery * 2 + crewBonus * 2
+                        hullMitigation += ship.artillery * 2 + crewBonus * 2 + classBonus.hullMitigation
                     }
                 }
                 VoyageAction.REPAIR -> {
-                    actionScore += 3 + crewBonus
-                    hullMitigation += 5 + crewBonus * 3 + if (ShipCompartment.WORKSHOP in ship.compartments) 3 else 0
+                    actionScore += 3 + crewBonus + classBonus.actionScore
+                    hullMitigation += 5 + crewBonus * 3 + classBonus.hullMitigation + if (ShipCompartment.WORKSHOP in ship.compartments) 3 else 0
                 }
                 VoyageAction.PROTECT_SUPPLIES -> {
-                    actionScore += 2 + crewBonus
-                    supplyMitigation += 12 + crewBonus * 3
+                    actionScore += 2 + crewBonus + classBonus.actionScore
+                    supplyMitigation += 12 + crewBonus * 3 + classBonus.supplyMitigation
                 }
             }
         }
