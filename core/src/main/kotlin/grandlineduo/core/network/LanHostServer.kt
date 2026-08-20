@@ -18,6 +18,7 @@ class LanHostServer(
     private val allowedClientId: String = "p2",
     private val bindAddress: String = "0.0.0.0",
     private val gameplayCommandHandler: GameplayCommandHandler? = null,
+    private val handshakeTimeoutMillis: Int = 5_000,
 ) : Closeable {
     private val running = AtomicBoolean(false)
     private val sessionLock = Any()
@@ -36,6 +37,7 @@ class LanHostServer(
 
     fun start() {
         check(running.compareAndSet(false, true)) { "LAN host already started" }
+        require(handshakeTimeoutMillis > 0) { "Handshake timeout must be positive" }
         val server = ServerSocket()
         server.reuseAddress = true
         server.bind(InetSocketAddress(InetAddress.getByName(bindAddress), port))
@@ -60,7 +62,7 @@ class LanHostServer(
 
     private fun handleSession(socket: Socket) {
         socket.tcpNoDelay = true
-        socket.soTimeout = 5_000
+        socket.soTimeout = handshakeTimeoutMillis
         try {
             val first = WireCodec.read(socket.getInputStream())
             val hello = (first as? WireMessage.Hello)?.hello
@@ -80,6 +82,11 @@ class LanHostServer(
 
             val plan = synchronized(hostReplica) { hostReplica.planReconnect(hello) }
             WireCodec.write(socket.getOutputStream(), WireMessage.Sync(plan))
+
+            // The timeout protects only unauthenticated handshakes. An authenticated LAN session
+            // may legitimately remain idle while players explore menus, read dialogue or plan moves.
+            // Request/response failures are still bounded by the client's own socket timeout.
+            socket.soTimeout = 0
 
             while (running.get() && !socket.isClosed) {
                 when (val message = WireCodec.read(socket.getInputStream())) {
