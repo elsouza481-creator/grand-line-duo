@@ -44,6 +44,8 @@ import grandlineduo.game.ship.ShipEngine
 import grandlineduo.game.ship.ShipUpgrade
 import grandlineduo.game.ship.VoyageAction
 import grandlineduo.game.ship.VoyageEngine
+import grandlineduo.game.world.ExplorationCombatCoordinator
+import grandlineduo.game.world.ExplorationCombatEngine
 import grandlineduo.game.world.ExplorationDirection
 import grandlineduo.game.world.ExplorationEngine
 import grandlineduo.game.world.ExplorationInteraction
@@ -59,6 +61,7 @@ class StormglassGameplayCommandHandler(
     private val scenarioEngine = StormglassCayScenario()
     private val arcCoordinator = ArcCoordinator(hostReplica, snapshotStore, durableStore)
     private val arcCombatCoordinator = ArcCombatCoordinator(hostReplica, snapshotStore, durableStore)
+    private val explorationCombatCoordinator = ExplorationCombatCoordinator(hostReplica, snapshotStore, durableStore)
 
     @Synchronized
     override fun handle(command: GameplayWireCommand, hostTimestamp: Long): CampaignEvent {
@@ -96,12 +99,21 @@ class StormglassGameplayCommandHandler(
                 throw IllegalArgumentException("Unknown combat action ${command.actionType}")
             }
             require(type in BASIC_COMBAT_ACTIONS) { "Power techniques require a power action" }
-            return arcCombatCoordinator.submitAction(
-                command.commandId,
-                command.actorId,
-                type,
-                hostTimestamp,
-            )
+            return if (ExplorationCombatEngine.isActive(before)) {
+                explorationCombatCoordinator.submitAction(
+                    command.commandId,
+                    command.actorId,
+                    type,
+                    hostTimestamp,
+                )
+            } else {
+                arcCombatCoordinator.submitAction(
+                    command.commandId,
+                    command.actorId,
+                    type,
+                    hostTimestamp,
+                )
+            }
         }
         val restored = StormglassPersistenceAdapter.decode(before)
 
@@ -228,7 +240,8 @@ class StormglassGameplayCommandHandler(
                 } catch (_: IllegalArgumentException) {
                     throw IllegalArgumentException("Unknown exploration direction ${command.target}")
                 }
-                ExplorationEngine.move(before, command.actorId, direction)
+                val moved = ExplorationEngine.move(before, command.actorId, direction)
+                ExplorationCombatEngine.startIfEncountered(moved, command.actorId)
             }
             "QUEST_ACCEPT" -> ExplorationQuestEngine.accept(before, command.actorId, command.target)
             "QUEST_PROGRESS" -> ExplorationQuestEngine.progress(before, command.actorId, command.target)
