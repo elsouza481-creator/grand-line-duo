@@ -54,6 +54,7 @@ object FourPlayerPresentationTest {
             val presentation = GamePresenter.present(world, "p3")
 
             assertEquals(GameScreen.HUB, presentation.screen)
+            assertEquals("p3", presentation.exploration?.localPlayerId)
             assertEquals(expectedPositions, presentation.exploration?.playerPositions)
             assertEquals(expectedPositions.getValue("p3"), presentation.exploration?.playerPosition)
             assertTrue(presentation.status.any { it.contains("Tripulação 4/4") })
