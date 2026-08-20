@@ -2,6 +2,7 @@ package grandlineduo.game.world
 
 import grandlineduo.core.model.WorldState
 import grandlineduo.game.InventoryEngine
+import grandlineduo.game.ItemCatalog
 import grandlineduo.game.character.ClassMasteryEngine
 import grandlineduo.game.combat.CombatStatus
 import grandlineduo.game.combat.CombatState
@@ -128,33 +129,45 @@ object ExplorationCombatEngine {
             partyBerries = world.partyBerries + enemy.rewardBerries * rewardMultiplier,
             worldFlags = clearedFlags + rewardFlags,
         )
-        combat.players.values
+        val survivingFighters = combat.players.values
             .filter { it.hp > 0 && it.id in rewarded.players }
             .sortedBy { it.id }
-            .forEach { fighter ->
-                val player = rewarded.players.getValue(fighter.id)
-                val profile = player.profile
-                val mastery = profile?.classMastery
-                if (profile != null && mastery != null) {
-                    val primary = mastery.primaryClass
-                    val progressed = ClassMasteryEngine.train(
-                        mastery,
-                        primary,
-                        enemy.rewardMasteryExperience.toLong() * rewardMultiplier,
-                    )
-                    rewarded = rewarded.copy(
-                        players = rewarded.players + (
-                            fighter.id to player.copy(profile = profile.copy(classMastery = progressed))
-                        ),
-                    )
-                }
-                rewarded = InventoryEngine.grant(
-                    rewarded,
-                    fighter.id,
-                    enemy.rewardItemId,
-                    enemy.rewardItemAmount,
+
+        survivingFighters.forEach { fighter ->
+            val player = rewarded.players.getValue(fighter.id)
+            val profile = player.profile
+            val mastery = profile?.classMastery
+            if (profile != null && mastery != null) {
+                val primary = mastery.primaryClass
+                val progressed = ClassMasteryEngine.train(
+                    mastery,
+                    primary,
+                    enemy.rewardMasteryExperience.toLong() * rewardMultiplier,
+                )
+                rewarded = rewarded.copy(
+                    players = rewarded.players + (
+                        fighter.id to player.copy(profile = profile.copy(classMastery = progressed))
+                    ),
                 )
             }
+            rewarded = InventoryEngine.grant(
+                rewarded,
+                fighter.id,
+                enemy.rewardItemId,
+                enemy.rewardItemAmount,
+            )
+        }
+
+        if (firstFieldBossClear) {
+            survivingFighters.firstOrNull()?.let { recipient ->
+                rewarded = InventoryEngine.grant(
+                    rewarded,
+                    recipient.id,
+                    ItemCatalog.FIELD_BOSS_LEGENDARY_ID,
+                    1,
+                )
+            }
+        }
         return rewarded
     }
 
