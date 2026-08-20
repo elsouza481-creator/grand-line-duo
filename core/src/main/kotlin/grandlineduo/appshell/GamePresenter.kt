@@ -12,6 +12,7 @@ import grandlineduo.game.ship.VoyageAction
 import grandlineduo.game.world.ExplorationDirection
 import grandlineduo.game.world.ExplorationEngine
 import grandlineduo.game.world.ExplorationInteraction
+import grandlineduo.game.world.ExplorationLootEngine
 import grandlineduo.game.world.ExplorationMap
 import grandlineduo.game.world.ExplorationQuestEngine
 import grandlineduo.game.world.ExplorationQuestStatus
@@ -37,6 +38,7 @@ data class ExplorationPresentation(
     val playerPosition: GridPosition,
     val interaction: ExplorationInteraction?,
     val visibleQuestObjectives: Set<GridPosition> = emptySet(),
+    val visiblePickups: Set<GridPosition> = emptySet(),
 )
 
 data class GamePresentation(
@@ -166,10 +168,15 @@ object GamePresenter {
         val interaction = ExplorationEngine.interactionAt(world, actorId)
         val npc = map.npcs[playerPosition]
         val objective = map.questObjectives[playerPosition]
+        val pickup = map.pickups[playerPosition]?.takeUnless { ExplorationLootEngine.isCollected(world, it.id) }
         val questId = npc?.questId ?: objective?.questId
         val questStatus = questId?.let { ExplorationQuestEngine.status(world, actorId, it) }
         val activeQuestObjectives = map.questObjectives.values
             .filter { ExplorationQuestEngine.status(world, actorId, it.questId) == ExplorationQuestStatus.ACTIVE }
+            .map { it.position }
+            .toSet()
+        val visiblePickups = map.pickups.values
+            .filterNot { ExplorationLootEngine.isCollected(world, it.id) }
             .map { it.position }
             .toSet()
 
@@ -192,6 +199,9 @@ object GamePresenter {
             }
             if (objective != null && ExplorationQuestEngine.status(world, actorId, objective.questId) == ExplorationQuestStatus.ACTIVE) {
                 add(GameAction(objective.questId, "Investigar: ${objective.label}", "QUEST_PROGRESS"))
+            }
+            if (pickup != null) {
+                add(GameAction(pickup.id, "Coletar cache de suprimentos", "LOOT_COLLECT"))
             }
 
             when (interaction) {
@@ -226,6 +236,7 @@ object GamePresenter {
                 null -> "${npc.name}, ${npc.title}."
             }
             objective != null && questStatus == ExplorationQuestStatus.ACTIVE -> "Você encontrou ${objective.label}. Examine o local para cumprir o objetivo."
+            pickup != null -> "Você encontrou um cache abandonado. Colete antes que outra tripulação chegue."
             interaction == ExplorationInteraction.DOCK -> "Você está no cais."
             interaction == ExplorationInteraction.MARKET -> "Bancas e mercadores cercam você."
             interaction == ExplorationInteraction.TRAINING -> "Esta área foi preparada para treino."
@@ -245,6 +256,7 @@ object GamePresenter {
                 playerPosition = playerPosition,
                 interaction = interaction,
                 visibleQuestObjectives = activeQuestObjectives,
+                visiblePickups = visiblePickups,
             ),
         )
     }
