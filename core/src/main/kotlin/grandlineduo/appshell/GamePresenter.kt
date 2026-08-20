@@ -252,6 +252,8 @@ object GamePresenter {
                     TrainingDuelStatus.CHALLENGED -> if (actorId == duel.opponentId) {
                         add(GameAction("", "Aceitar duelo", "DUEL_ACCEPT"))
                         add(GameAction("", "Recusar duelo", "DUEL_DECLINE"))
+                    } else if (actorId == duel.challengerId) {
+                        add(GameAction("", "Cancelar desafio", "DUEL_CANCEL"))
                     }
                     TrainingDuelStatus.ACTIVE -> {
                         if (actorId !in duel.lockedActions) {
