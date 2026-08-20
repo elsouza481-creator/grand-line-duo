@@ -44,7 +44,7 @@ import java.io.DataInputStream
 import java.io.DataOutputStream
 
 object WorldStateCodec {
-    private const val CURRENT_VERSION = 10
+    private const val CURRENT_VERSION = 11
 
     fun encode(state: WorldState): ByteArray {
         val out = ByteArrayOutputStream()
@@ -104,7 +104,7 @@ object WorldStateCodec {
             } else 0
             val socialState = if (version >= 5) readSocialState(data) else SocialState()
             val shipState = if (version >= 6 && data.readBoolean()) readShipState(data) else null
-            val activeVoyage = if (version >= 6 && data.readBoolean()) readVoyage(data) else null
+            val activeVoyage = if (version >= 6 && data.readBoolean()) readVoyage(data, version) else null
             val crewState = if (version >= 7) readCrewState(data) else CrewState()
             val activeArc = if (version >= 8 && data.readBoolean()) readArcState(data) else null
             val activeCombat = if (version >= 9 && data.readBoolean()) readCombatState(data) else null
@@ -494,6 +494,9 @@ object WorldStateCodec {
         data.writeUTF(voyage.incident.type.name)
         data.writeInt(voyage.incident.severity)
         data.writeLong(voyage.incident.seed)
+        val participants = voyage.participants.sorted()
+        data.writeInt(participants.size)
+        participants.forEach(data::writeUTF)
         val actions = voyage.actions.toSortedMap()
         data.writeInt(actions.size)
         actions.forEach { (playerId, action) ->
@@ -502,22 +505,40 @@ object WorldStateCodec {
         }
     }
 
-    private fun readVoyage(data: DataInputStream): VoyageEncounter {
+    private fun readVoyage(data: DataInputStream, version: Int): VoyageEncounter {
         val incident = VoyageIncident(
             type = VoyageIncidentType.valueOf(data.readUTF()),
             severity = data.readInt(),
             seed = data.readLong(),
         )
+        val participants = if (version >= 11) {
+            val participantCount = data.readInt()
+            require(participantCount in 2..4) { "Invalid voyage participant count" }
+            val decoded = linkedSetOf<String>()
+            repeat(participantCount) {
+                val playerId = data.readUTF()
+                require(playerId in HUMAN_PLAYER_IDS) { "Invalid voyage participant" }
+                require(decoded.add(playerId)) { "Duplicate voyage participant" }
+            }
+            require("p1" in decoded) { "Authoritative P1 must participate in a voyage" }
+            decoded
+        } else {
+            linkedSetOf("p1", "p2")
+        }
         val actionCount = data.readInt()
-        require(actionCount in 0..2) { "Invalid voyage action count" }
+        require(actionCount in 0..participants.size) { "Invalid voyage action count" }
         val actions = linkedMapOf<String, VoyageAction>()
         repeat(actionCount) {
             val playerId = data.readUTF()
-            require(playerId == "p1" || playerId == "p2") { "Invalid voyage player" }
+            require(playerId in participants) { "Invalid voyage player" }
             require(playerId !in actions) { "Duplicate voyage action" }
             actions[playerId] = VoyageAction.valueOf(data.readUTF())
         }
-        return VoyageEncounter(incident, actions)
+        return VoyageEncounter(
+            incident = incident,
+            actions = actions,
+            participants = participants,
+        )
     }
 
     private fun writeProfile(data: DataOutputStream, profile: CharacterProfile) {
@@ -735,4 +756,6 @@ object WorldStateCodec {
             useCount = useCount,
         )
     }
+
+    private val HUMAN_PLAYER_IDS = setOf("p1", "p2", "p3", "p4")
 }
