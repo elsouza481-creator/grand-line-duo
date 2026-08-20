@@ -6,6 +6,8 @@ import grandlineduo.game.character.CharacterDraft
 import grandlineduo.game.character.Skill
 import grandlineduo.game.scenario.ScenarioStage
 import grandlineduo.game.StormglassPersistenceAdapter
+import grandlineduo.game.world.ExplorationDirection
+import grandlineduo.game.world.ExplorationEngine
 import grandlineduo.test.assertEquals
 import grandlineduo.test.assertTrue
 import grandlineduo.test.test
@@ -97,6 +99,41 @@ object GameSessionCoordinatorTest {
                 assertEquals("Bram", authoritative.players.getValue("p4").name)
                 assertTrue(authoritative.players.getValue("p3").profile != null)
                 assertTrue(authoritative.players.getValue("p4").profile != null)
+                assertEquals(authoritative, p2.worldState())
+                assertEquals(authoritative, p3.worldState())
+                assertEquals(authoritative, p4.worldState())
+            } finally {
+                p4.close()
+                p3.close()
+                p2.close()
+                host.close()
+            }
+        }
+
+        test("P3 and P4 move independently over LAN and all replicas converge") {
+            val host = GameSessionCoordinator()
+            val p2 = GameSessionCoordinator()
+            val p3 = GameSessionCoordinator()
+            val p4 = GameSessionCoordinator()
+            try {
+                host.startHost("Exploration Host", campaignId = "coord-four-exploration")
+                joinViaDiscovery(host, p2, freeUdpPort())
+                joinViaDiscovery(host, p3, freeUdpPort())
+                joinViaDiscovery(host, p4, freeUdpPort())
+                p3.createCharacter(validDraft("Rika"))
+                p4.createCharacter(validDraft("Bram"))
+
+                val map = ExplorationEngine.mapFor(host.worldState().campaignId, host.worldState().islandId)
+                p3.submitWorldAction("EXPLORE_MOVE", "EAST", 999)
+                p4.submitWorldAction("EXPLORE_MOVE", "WEST", 999)
+                p2.refresh()
+                p3.refresh()
+                p4.refresh()
+
+                val authoritative = host.worldState()
+                assertEquals(map.spawn + ExplorationDirection.EAST, ExplorationEngine.position(authoritative, "p3"))
+                assertEquals(map.spawn + ExplorationDirection.WEST, ExplorationEngine.position(authoritative, "p4"))
+                assertTrue(ExplorationEngine.position(authoritative, "p3") != ExplorationEngine.position(authoritative, "p4"))
                 assertEquals(authoritative, p2.worldState())
                 assertEquals(authoritative, p3.worldState())
                 assertEquals(authoritative, p4.worldState())
