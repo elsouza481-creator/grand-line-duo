@@ -5,6 +5,7 @@ import grandlineduo.game.arc.ArcPhase
 import grandlineduo.game.combat.CombatActionType
 import grandlineduo.game.combat.EnemyAttackType
 import grandlineduo.game.InventoryEngine
+import grandlineduo.game.scenario.ScenarioState
 import grandlineduo.game.scenario.ScenarioStage
 import grandlineduo.game.ship.VoyageAction
 import grandlineduo.test.assertEquals
@@ -57,36 +58,49 @@ object CampaignLoopTest {
                     val world = session.worldState()
                     visited += world.islandId
                     val view = GamePresenter.present(world, "p1")
-                    when (view.screen) {
-                        GameScreen.STORY -> session.submitScenarioChoice(view.actions.first().id)
-                        GameScreen.ARC -> session.submitArcChoice(view.actions.first().id)
-                        GameScreen.COMBAT -> {
-                            val combat = world.activeCombat ?: StormglassPersistenceAdapter.decode(world).combat!!
-                            val action = if (combat.telegraph.targetPlayerId == "p1" && combat.telegraph.type == EnemyAttackType.HEAVY_STRIKE) {
-                                CombatActionType.DODGE
-                            } else CombatActionType.SETUP
-                            session.submitCombatAction(action)
-                        }
-                        GameScreen.VOYAGE -> session.submitVoyageAction(VoyageAction.HELM)
-                        GameScreen.HUB -> {
-                            var current = session.worldState()
-                            var inventory = InventoryEngine.read(current, "p1")
-                            while (current.players.getValue("p1").hp < current.players.getValue("p1").maxHp && (inventory.items["bandage"] ?: 0) > 0) {
-                                session.submitInventoryAction("USE", "bandage")
-                                current = session.worldState()
-                                inventory = InventoryEngine.read(current, "p1")
+                    try {
+                        when (view.screen) {
+                            GameScreen.STORY -> session.submitScenarioChoice(view.actions.first().id)
+                            GameScreen.ARC -> session.submitArcChoice(view.actions.first().id)
+                            GameScreen.COMBAT -> {
+                                val combat = world.activeCombat ?: StormglassPersistenceAdapter.decode(world).combat!!
+                                val action = if (combat.telegraph.targetPlayerId == "p1" && combat.telegraph.type == EnemyAttackType.HEAVY_STRIKE) {
+                                    CombatActionType.DODGE
+                                } else CombatActionType.SETUP
+                                session.submitCombatAction(action)
                             }
-                            if (current.players.getValue("p1").hp < current.players.getValue("p1").maxHp && current.partyBerries >= 250L) {
-                                runCatching { session.submitWorldAction("SHOP_BUY", "bandage", 2) }
-                                repeat(2) { runCatching { session.submitInventoryAction("USE", "bandage") } }
+                            GameScreen.VOYAGE -> session.submitVoyageAction(VoyageAction.HELM)
+                            GameScreen.HUB -> {
+                                var current = session.worldState()
+                                var inventory = InventoryEngine.read(current, "p1")
+                                while (current.players.getValue("p1").hp < current.players.getValue("p1").maxHp && (inventory.items["bandage"] ?: 0) > 0) {
+                                    session.submitInventoryAction("USE", "bandage")
+                                    current = session.worldState()
+                                    inventory = InventoryEngine.read(current, "p1")
+                                }
+                                if (current.players.getValue("p1").hp < current.players.getValue("p1").maxHp && current.partyBerries >= 250L) {
+                                    runCatching { session.submitWorldAction("SHOP_BUY", "bandage", 2) }
+                                    repeat(2) { runCatching { session.submitInventoryAction("USE", "bandage") } }
+                                }
+                                val sail = GamePresenter.present(session.worldState(), "p1").actions.first { it.kind == "CAMPAIGN" }
+                                session.advanceCampaign(sail.id)
                             }
-                            val sail = GamePresenter.present(session.worldState(), "p1").actions.first { it.kind == "CAMPAIGN" }
-                            session.advanceCampaign(sail.id)
+                            GameScreen.WAITING_FOR_PARTNER -> session.refresh()
+                            GameScreen.END -> error("Endless world must not enter a fixed epilogue")
+                            GameScreen.GAME_OVER -> error("Campaign became unwinnable at step $steps")
+                            GameScreen.CHARACTER_CREATION -> error("Character unexpectedly missing")
                         }
-                        GameScreen.WAITING_FOR_PARTNER -> session.refresh()
-                        GameScreen.END -> error("Endless world must not enter a fixed epilogue")
-                        GameScreen.GAME_OVER -> error("Campaign became unwinnable at step $steps")
-                        GameScreen.CHARACTER_CREATION -> error("Character unexpectedly missing")
+                    } catch (failure: Throwable) {
+                        val failed = session.worldState()
+                        val arc = failed.activeArc
+                        val activeCombat = failed.activeCombat
+                        val legacyCombat = runCatching { StormglassPersistenceAdapter.decode(failed).combat }.getOrNull()
+                        error(
+                            "step=$steps screen=${view.screen} island=${failed.islandId} voyages=${failed.worldFlags["world.voyages"]} " +
+                                "arcPhase=${arc?.phase} arcActed=${arc?.actedThisPhase} activeCombat=${activeCombat?.status} " +
+                                "activeLocked=${activeCombat?.lockedActions?.keys} legacyCombat=${legacyCombat?.status} " +
+                                "cause=${failure.message}"
+                        )
                     }
                 }
 
