@@ -358,7 +358,8 @@ class GameSessionCoordinator(private val saveRoot: Path? = null) : Closeable {
         }
 
         val activeArcCombat = host.state.activeCombat
-        if (activeArcCombat != null && activeArcCombat.status == grandlineduo.game.combat.CombatStatus.ACTIVE) {
+        if (activeArcCombat != null) {
+            if (activeArcCombat.status != grandlineduo.game.combat.CombatStatus.ACTIVE) return
             if (activeArcCombat.players["p2"]?.hp ?: 0 <= 0) return
             if ("p2" in activeArcCombat.lockedActions) return
             val p1Action = activeArcCombat.lockedActions["p1"]?.type
@@ -373,7 +374,8 @@ class GameSessionCoordinator(private val saveRoot: Path? = null) : Closeable {
 
         val restored = StormglassPersistenceAdapter.decode(host.state)
         val combat = restored.combat
-        if (combat != null && combat.status == grandlineduo.game.combat.CombatStatus.ACTIVE) {
+        if (combat != null) {
+            if (combat.status != grandlineduo.game.combat.CombatStatus.ACTIVE) return
             if (combat.players["p2"]?.hp ?: 0 <= 0 || "p2" in combat.lockedActions) return
             val p1Action = combat.lockedActions["p1"]?.type
             val chosen = when {
