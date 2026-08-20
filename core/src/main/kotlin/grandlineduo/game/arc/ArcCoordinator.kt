@@ -55,7 +55,21 @@ class ArcCoordinator(
         }
         require(hostReplica.state.activeCombat == null) { "Arc choice is blocked while combat is active" }
         val current = hostReplica.state.activeArc ?: throw IllegalArgumentException("No active arc")
-        val outcome = ArcEngine.choose(current, playerId, choiceId)
+        val baseOutcome = ArcEngine.choose(current, playerId, choiceId)
+        val scholarTier = ClassMasteryArcResolver.scholarTierForChoice(
+            hostReplica.state.players[playerId]?.profile,
+            current.phase,
+            choiceId,
+        )
+        val outcome = if (scholarTier > 0) {
+            baseOutcome.copy(
+                state = ClassMasteryArcResolver.applyScholarAnalysis(baseOutcome.state, scholarTier),
+                beats = baseOutcome.beats + ArcBeat(
+                    text = "O conhecimento especializado transforma as pistas em uma análise tática compartilhada.",
+                    visibleTo = setOf("p1", "p2"),
+                ),
+            )
+        } else baseOutcome
         val nextFlags = if (outcome.state.phase == ArcPhase.COMPLETE) {
             val prefix = "ARC_HISTORY:${outcome.state.arcId}:"
             hostReplica.state.worldFlags.toMutableMap().also { flags ->
@@ -84,6 +98,7 @@ class ArcCoordinator(
             "meta.arcEscalation" to outcome.state.escalation.toString(),
             "meta.arcBossStarted" to (bossCombat != null).toString(),
         )
+        if (scholarTier > 0) metadata["meta.scholarAnalysisTier"] = scholarTier.toString()
         outcome.beats.forEachIndexed { index, beat ->
             metadata["meta.arcBeat.$index.visible"] = beat.visibleTo.sorted().joinToString(",")
             metadata["meta.arcBeat.$index.text"] = beat.text
