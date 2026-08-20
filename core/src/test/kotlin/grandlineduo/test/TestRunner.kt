@@ -23,7 +23,6 @@ fun assertTrue(value: Boolean, message: String = "") {
 }
 
 fun main() {
-    // Force loading test objects so their init blocks register cases.
     grandlineduo.core.hash.CanonicalStateHasherTest.register()
     grandlineduo.core.events.EventReducerTest.register()
     grandlineduo.core.commands.CommandIdempotencyTest.register()
@@ -103,6 +102,7 @@ fun main() {
     grandlineduo.game.world.GrandLineWorldAtlasTest.register()
     grandlineduo.game.world.ExplorationEngineTest.register()
     grandlineduo.game.world.ExplorationCommandIntegrationTest.register()
+    grandlineduo.game.world.ExplorationViewportTest.register()
 
     var failed = 0
     for (case in TestRegistry.all()) {
