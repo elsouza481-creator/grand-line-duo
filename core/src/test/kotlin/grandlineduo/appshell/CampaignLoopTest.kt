@@ -5,7 +5,6 @@ import grandlineduo.game.arc.ArcPhase
 import grandlineduo.game.combat.CombatActionType
 import grandlineduo.game.combat.EnemyAttackType
 import grandlineduo.game.InventoryEngine
-import grandlineduo.game.scenario.ScenarioState
 import grandlineduo.game.scenario.ScenarioStage
 import grandlineduo.game.ship.VoyageAction
 import grandlineduo.game.world.ExplorationDirection
@@ -47,7 +46,7 @@ object CampaignLoopTest {
                 assertTrue(rejectedAwayFromDock, "Setting sail must require P1 to stand on the physical dock")
                 assertEquals(null, session.worldState().activeVoyage)
 
-                moveP1ToDock(session)
+                assertTrue(moveP1ToDock(session), "Starter route should reach the dock without an encounter")
                 session.advanceCampaign()
                 assertTrue(session.worldState().activeVoyage != null)
                 session.submitVoyageAction(VoyageAction.HELM)
@@ -95,9 +94,11 @@ object CampaignLoopTest {
                                     runCatching { session.submitWorldAction("SHOP_BUY", "bandage", 2) }
                                     repeat(2) { runCatching { session.submitInventoryAction("USE", "bandage") } }
                                 }
-                                moveP1ToDock(session)
-                                val sail = GamePresenter.present(session.worldState(), "p1").actions.first { it.kind == "CAMPAIGN" }
-                                session.advanceCampaign(sail.id)
+                                if (moveP1ToDock(session)) {
+                                    val dockView = GamePresenter.present(session.worldState(), "p1")
+                                    val sail = dockView.actions.first { it.kind == "CAMPAIGN" }
+                                    session.advanceCampaign(sail.id)
+                                }
                             }
                             GameScreen.WAITING_FOR_PARTNER -> session.refresh()
                             GameScreen.END -> error("Endless world must not enter a fixed epilogue")
@@ -127,9 +128,14 @@ object CampaignLoopTest {
         }
     }
 
-    private fun moveP1ToDock(session: GameSessionCoordinator) {
+    /**
+     * Returns false when walking triggers a physical encounter. The caller must yield back to
+     * GamePresenter so the next loop iteration handles COMBAT before issuing more world actions.
+     */
+    private fun moveP1ToDock(session: GameSessionCoordinator): Boolean {
         var guard = 0
         while (ExplorationEngine.interactionAt(session.worldState(), "p1") != ExplorationInteraction.DOCK && guard++ < 40) {
+            if (session.worldState().activeCombat != null) return false
             val world = session.worldState()
             val map = ExplorationEngine.mapFor(world.campaignId, world.islandId)
             val current = ExplorationEngine.position(world, "p1")
@@ -141,7 +147,9 @@ object CampaignLoopTest {
                 else -> ExplorationDirection.NORTH
             }
             session.submitWorldAction("EXPLORE_MOVE", direction.name, 999)
+            if (session.worldState().activeCombat != null) return false
         }
         assertTrue(guard < 40, "P1 must be able to walk to the physical dock")
+        return true
     }
 }
