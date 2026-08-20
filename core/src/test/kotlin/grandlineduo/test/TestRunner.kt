@@ -68,6 +68,7 @@ fun main() {
     grandlineduo.game.character.CharacterPersistenceTest.register()
     grandlineduo.game.character.ProgressionEngineTest.register()
     grandlineduo.game.character.ClassMasteryEngineTest.register()
+    grandlineduo.game.character.ClassMasteryPersistenceTest.register()
     grandlineduo.game.character.CharacterCoopIntegrationTest.register()
     grandlineduo.game.powers.HakiEngineTest.register()
     grandlineduo.game.powers.DevilFruitEngineTest.register()
