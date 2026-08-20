@@ -48,6 +48,15 @@ data class ExplorationQuestObjective(
     val label: String,
 )
 
+data class ExplorationPickup(
+    val id: String,
+    val position: GridPosition,
+    val label: String,
+    val itemId: String,
+    val amount: Int,
+    val berries: Long,
+)
+
 data class ExplorationMap(
     val width: Int,
     val height: Int,
@@ -56,6 +65,7 @@ data class ExplorationMap(
     val interactions: Map<GridPosition, ExplorationInteraction>,
     val npcs: Map<GridPosition, ExplorationNpc> = emptyMap(),
     val questObjectives: Map<GridPosition, ExplorationQuestObjective> = emptyMap(),
+    val pickups: Map<GridPosition, ExplorationPickup> = emptyMap(),
 ) {
     fun tileAt(position: GridPosition): ExplorationTile = tiles[position] ?: ExplorationTile.WATER
     fun isWalkable(position: GridPosition): Boolean = tileAt(position).walkable
@@ -135,6 +145,19 @@ object ExplorationEngine {
             label = "Caixa perdida de $npcName",
         )
 
+        // A separate shared cache rewards free exploration. It sits on the guaranteed north road,
+        // away from services, spawn, NPC and quest objective, so either human can reach it safely.
+        val pickupPosition = GridPosition(SPAWN.x, SPAWN.y - 4)
+        tiles[pickupPosition] = ExplorationTile.ROAD
+        val pickup = ExplorationPickup(
+            id = "field-cache-$islandId",
+            position = pickupPosition,
+            label = "Baú de suprimentos esquecido",
+            itemId = "bandage",
+            amount = 1,
+            berries = 350L,
+        )
+
         return ExplorationMap(
             width = WIDTH,
             height = HEIGHT,
@@ -143,6 +166,7 @@ object ExplorationEngine {
             interactions = interactions.toMap(),
             npcs = mapOf(questGiver.position to questGiver),
             questObjectives = mapOf(objective.position to objective),
+            pickups = mapOf(pickup.position to pickup),
         )
     }
 
@@ -193,6 +217,11 @@ object ExplorationEngine {
     fun questObjectiveAt(world: WorldState, playerId: String): ExplorationQuestObjective? {
         val map = mapFor(world.campaignId, world.islandId)
         return map.questObjectives[position(world, playerId)]
+    }
+
+    fun pickupAt(world: WorldState, playerId: String): ExplorationPickup? {
+        val map = mapFor(world.campaignId, world.islandId)
+        return map.pickups[position(world, playerId)]
     }
 
     private fun positionKey(islandId: String, playerId: String, axis: String) =
