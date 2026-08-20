@@ -4,6 +4,7 @@ import grandlineduo.core.commands.GrantBerriesCommand
 import grandlineduo.core.hash.CanonicalStateHasher
 import grandlineduo.core.model.WorldState
 import grandlineduo.test.assertEquals
+import grandlineduo.test.assertTrue
 import grandlineduo.test.test
 
 object LanTransportIntegrationTest {
@@ -138,6 +139,40 @@ object LanTransportIntegrationTest {
                             assertEquals(3, server.activeClientCount)
                         }
                     }
+                }
+            }
+        }
+
+        test("LAN host automatically assigns p2 p3 p4 and rejects a fifth player when room is full") {
+            val initial = WorldState(campaignId = "lan-auto-slots")
+            val hostReplica = HostReplica(initial)
+            LanHostServer(hostReplica, port = 0).use { server ->
+                server.start()
+                val c2 = LanClientConnection("127.0.0.1", server.boundPort, LanClientConnection.AUTO_SLOT, ClientReplica(initial))
+                val c3 = LanClientConnection("127.0.0.1", server.boundPort, LanClientConnection.AUTO_SLOT, ClientReplica(initial))
+                val c4 = LanClientConnection("127.0.0.1", server.boundPort, LanClientConnection.AUTO_SLOT, ClientReplica(initial))
+                val overflow = LanClientConnection("127.0.0.1", server.boundPort, LanClientConnection.AUTO_SLOT, ClientReplica(initial))
+                try {
+                    c2.connect()
+                    c3.connect()
+                    c4.connect()
+                    assertEquals("p2", c2.assignedPeerId)
+                    assertEquals("p3", c3.assignedPeerId)
+                    assertEquals("p4", c4.assignedPeerId)
+                    assertEquals(setOf("p2", "p3", "p4"), server.activeClientIds)
+
+                    var roomFull = false
+                    try {
+                        overflow.connect()
+                    } catch (e: LanSessionException) {
+                        roomFull = e.message?.contains("ROOM_FULL") == true
+                    }
+                    assertTrue(roomFull)
+                } finally {
+                    overflow.close()
+                    c4.close()
+                    c3.close()
+                    c2.close()
                 }
             }
         }
