@@ -5,6 +5,8 @@ import grandlineduo.core.model.WorldState
 import grandlineduo.game.StormglassPersistenceAdapter
 import grandlineduo.game.character.CharacterCreation
 import grandlineduo.game.character.CharacterCreationResult
+import grandlineduo.game.character.ClassMasteryEngine
+import grandlineduo.game.character.ClassPath
 import grandlineduo.game.combat.CombatActionType
 import grandlineduo.game.combat.CombatState
 import grandlineduo.game.combat.Combatant
@@ -57,6 +59,39 @@ object GamePresenterTest {
                 assertTrue(p1.actions.any { it.id == "SAIL" })
                 assertTrue(p2.actions.none { it.id == "SAIL" })
             }
+        }
+
+        test("presenter exposes primary class mastery progress in status") {
+            val base = profiledWorld()
+            val player = base.players.getValue("p1")
+            val created = CharacterCreation.create(
+                GameSessionCoordinatorTest.validDraft("Arlen").copy(classPath = ClassPath.NAVIGATOR)
+            ) as CharacterCreationResult.Success
+            val profile = created.profile.copy(
+                classMastery = ClassMasteryEngine.train(
+                    created.profile.classMastery!!,
+                    ClassPath.NAVIGATOR,
+                    25,
+                )
+            )
+            val world = base.copy(
+                players = base.players + (
+                    "p1" to player.copy(
+                        name = profile.name,
+                        hp = profile.maxHp,
+                        maxHp = profile.maxHp,
+                        energy = profile.maxEnergy,
+                        maxEnergy = profile.maxEnergy,
+                        profile = profile,
+                    )
+                )
+            )
+
+            val presentation = GamePresenter.present(world, "p1")
+            assertTrue(
+                presentation.status.any { "Navegador" in it && "nível 0" in it && "25/100 XP" in it },
+                "class mastery status must be visible to the player",
+            )
         }
 
         test("presenter exposes tactical actions while combat is active") {
