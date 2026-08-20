@@ -10,11 +10,24 @@ import grandlineduo.game.combat.EnemyTelegraph
 
 /**
  * Exploration-only combat lifecycle. Combat rules themselves remain in CombatEngine.
- * Encounter identity is stored in world flags so the existing snapshot/hash/LAN stack persists it.
+ * Encounter identity and respawn cadence are stored in world flags so the existing
+ * snapshot/hash/LAN stack persists them without a new wire or snapshot schema.
  */
 object ExplorationCombatEngine {
-    fun isDefeated(world: WorldState, enemyId: String): Boolean =
-        world.worldFlags[defeatedKey(world.islandId, enemyId)] == "true"
+    fun isDefeated(world: WorldState, enemyId: String): Boolean {
+        if (world.worldFlags[defeatedKey(world.islandId, enemyId)] != "true") return false
+        val respawnAt = world.worldFlags[respawnAtKey(world.islandId, enemyId)]?.toLongOrNull()
+            ?: return true
+        return ExplorationEngine.explorationSteps(world) < respawnAt
+    }
+
+    fun stepsUntilRespawn(world: WorldState, enemyId: String): Int {
+        if (world.worldFlags[defeatedKey(world.islandId, enemyId)] != "true") return 0
+        val respawnAt = world.worldFlags[respawnAtKey(world.islandId, enemyId)]?.toLongOrNull()
+            ?: return Int.MAX_VALUE
+        val remaining = (respawnAt - ExplorationEngine.explorationSteps(world)).coerceAtLeast(0L)
+        return remaining.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+    }
 
     fun isActive(world: WorldState): Boolean {
         val enemyId = world.worldFlags[activeKey(world.islandId)] ?: return false
@@ -87,11 +100,20 @@ object ExplorationCombatEngine {
             return world.copy(players = syncedPlayers, activeCombat = null, worldFlags = clearedFlags)
         }
 
+        val currentSteps = ExplorationEngine.explorationSteps(world)
+        val respawnAt = if (currentSteps > Long.MAX_VALUE - enemy.respawnSteps.toLong()) {
+            Long.MAX_VALUE
+        } else {
+            currentSteps + enemy.respawnSteps.toLong()
+        }
         var rewarded = world.copy(
             players = syncedPlayers,
             activeCombat = null,
             partyBerries = world.partyBerries + enemy.rewardBerries,
-            worldFlags = clearedFlags + (defeatedKey(world.islandId, enemy.id) to "true"),
+            worldFlags = clearedFlags + mapOf(
+                defeatedKey(world.islandId, enemy.id) to "true",
+                respawnAtKey(world.islandId, enemy.id) to respawnAt.toString(),
+            ),
         )
         combat.players.values
             .filter { it.hp > 0 && it.id in rewarded.players }
@@ -111,6 +133,9 @@ object ExplorationCombatEngine {
 
     private fun defeatedKey(islandId: String, enemyId: String): String =
         "explore.$islandId.enemy.$enemyId.defeated"
+
+    private fun respawnAtKey(islandId: String, enemyId: String): String =
+        "explore.$islandId.enemy.$enemyId.respawnAtStep"
 
     private fun combatSeed(campaignId: String, islandId: String, enemyId: String): Long {
         var hash = 0xCBF29CE484222325UL.toLong()
