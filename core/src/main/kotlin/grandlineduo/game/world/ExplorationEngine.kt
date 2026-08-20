@@ -69,6 +69,7 @@ data class ExplorationEnemy(
     val rewardItemId: String,
     val rewardItemAmount: Int,
     val initialAttackType: EnemyAttackType,
+    val respawnSteps: Int,
 )
 
 data class ExplorationMap(
@@ -187,6 +188,7 @@ object ExplorationEngine {
                 rewardItemId = profile.rewardItemId,
                 rewardItemAmount = profile.rewardItemAmount,
                 initialAttackType = profile.initialAttackType,
+                respawnSteps = profile.respawnSteps,
             )
         }
 
@@ -224,11 +226,21 @@ object ExplorationEngine {
         )
     }
 
+    fun explorationSteps(world: WorldState): Long =
+        world.worldFlags[stepKey(world.islandId)]?.toLongOrNull()?.coerceAtLeast(0L) ?: 0L
+
     fun move(world: WorldState, playerId: String, direction: ExplorationDirection): WorldState {
         val current = position(world, playerId)
         val target = current + direction
         val map = mapFor(world.campaignId, world.islandId)
-        return if (map.isWalkable(target)) place(world, playerId, target) else world
+        if (!map.isWalkable(target)) return world
+
+        val placed = place(world, playerId, target)
+        val currentSteps = explorationSteps(world)
+        val nextSteps = if (currentSteps == Long.MAX_VALUE) Long.MAX_VALUE else currentSteps + 1L
+        return placed.copy(
+            worldFlags = placed.worldFlags + (stepKey(world.islandId) to nextSteps.toString()),
+        )
     }
 
     fun moveBy(world: WorldState, playerId: String, dx: Int, dy: Int): WorldState {
@@ -264,6 +276,8 @@ object ExplorationEngine {
 
     private fun positionKey(islandId: String, playerId: String, axis: String) =
         "explore.$islandId.$playerId.$axis"
+
+    private fun stepKey(islandId: String): String = "explore.$islandId.steps"
 
     private fun seed(campaignId: String, islandId: String): Long {
         var hash = 0xCBF29CE484222325UL.toLong()
