@@ -309,13 +309,24 @@ class StormglassGameplayCommandHandler(
                 val path = ClassPath.valueOf(command.target.uppercase())
                 profile.copy(classMastery = ClassMasteryEngine.start(path))
             }
-            "TRAIN_CLASS" -> updateProfile(before, command.actorId) { profile ->
+            "TRAIN_CLASS" -> {
+                val player = before.players[command.actorId]
+                    ?: throw IllegalArgumentException("Unknown player ${command.actorId}")
+                require(player.energy >= CLASS_TRAINING_ENERGY_COST) {
+                    "Class training requires $CLASS_TRAINING_ENERGY_COST energy"
+                }
+                val profile = player.profile
+                    ?: throw IllegalArgumentException("Character not created for ${command.actorId}")
                 val mastery = profile.classMastery
                     ?: throw IllegalArgumentException("Primary class must be chosen before class training")
                 val path = ClassPath.valueOf(command.target.uppercase())
-                profile.copy(
+                val trainedProfile = profile.copy(
                     classMastery = ClassMasteryEngine.train(mastery, path, CLASS_TRAINING_EFFORT),
                 )
+                val trainedPlayer = CharacterStateSync.applyProfile(player, trainedProfile).copy(
+                    energy = player.energy - CLASS_TRAINING_ENERGY_COST,
+                )
+                before.copy(players = before.players + (command.actorId to trainedPlayer))
             }
             "HAKI_AWAKEN" -> updateProfile(before, command.actorId) { profile ->
                 val type = HakiType.valueOf(command.target.uppercase())
@@ -668,6 +679,7 @@ class StormglassGameplayCommandHandler(
 
     companion object {
         private const val CLASS_TRAINING_EFFORT = 25L
+        private const val CLASS_TRAINING_ENERGY_COST = 5
         private val BASIC_COMBAT_ACTIONS = setOf(
             CombatActionType.ATTACK,
             CombatActionType.DEFEND,
