@@ -5,6 +5,7 @@ import grandlineduo.core.persistence.EventCodec
 import grandlineduo.core.persistence.WorldStateCodec
 import grandlineduo.game.character.Attribute
 import grandlineduo.game.character.CharacterDraft
+import grandlineduo.game.character.ClassPath
 import grandlineduo.game.character.Skill
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
@@ -279,7 +280,6 @@ object WireCodec {
         throw WireProtocolException("Invalid wire payload: ${e.message}")
     }
 
-
     private fun DataOutputStream.writeCharacterDraft(draft: CharacterDraft) {
         writeUTF(draft.name)
         writeInt(draft.age)
@@ -310,6 +310,9 @@ object WireCodec {
             writeUTF(skill.name)
             writeInt(value)
         }
+
+        writeBoolean(draft.classPath != null)
+        draft.classPath?.let { writeUTF(it.name) }
     }
 
     private fun DataInputStream.readCharacterDraft(): CharacterDraft {
@@ -347,6 +350,8 @@ object WireCodec {
             skills[skill] = readInt()
         }
 
+        val classPath = if (readBoolean()) ClassPath.valueOf(readUTF()) else null
+
         return CharacterDraft(
             name = name,
             age = age,
@@ -365,6 +370,7 @@ object WireCodec {
             defect = defect,
             attributes = attributes,
             skills = skills,
+            classPath = classPath,
         )
     }
 
