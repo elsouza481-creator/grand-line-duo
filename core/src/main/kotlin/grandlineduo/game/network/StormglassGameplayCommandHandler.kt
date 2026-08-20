@@ -683,7 +683,8 @@ class StormglassGameplayCommandHandler(
         val world = hostReplica.state
         return CombatState(
             round = 1,
-            players = world.players.mapValues { (id, player) ->
+            players = listOf("p1", "p2").associateWith { id ->
+                val player = world.players[id] ?: throw IllegalArgumentException("Missing legacy combat player $id")
                 Combatant(id, player.name, player.hp, player.maxHp)
             },
             enemy = EnemyCombatant(
