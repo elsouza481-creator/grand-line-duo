@@ -9,6 +9,7 @@ import grandlineduo.game.combat.CombatStatus
 import grandlineduo.game.scenario.StormglassCayScenario
 import grandlineduo.game.powers.PowerTechniqueEngine
 import grandlineduo.game.ship.VoyageAction
+import grandlineduo.game.world.GrandLineWorldAtlas
 
 enum class GameScreen {
     CHARACTER_CREATION,
@@ -90,7 +91,7 @@ object GamePresenter {
 
         world.activeArc?.let { arc ->
             if (arc.phase == ArcPhase.COMPLETE) {
-                return hub(world, actorId, "O conflito desta ilha terminou. Reorganize a tripulação antes de zarpar.")
+                return hub(world, actorId, "O conflito desta ilha terminou. Reorganize a tripulação e escolha livremente a próxima rota.")
             }
             if (actorId in arc.actedThisPhase) {
                 return GamePresentation(GameScreen.WAITING_FOR_PARTNER, "Decisão registrada", "Aguardando a outra decisão para o Director resolver a cena.", statusFor(world, actorId))
@@ -106,7 +107,7 @@ object GamePresenter {
         }
 
         if (restored.scenario.stage == grandlineduo.game.scenario.ScenarioStage.COMPLETE) {
-            return hub(world, actorId, "Stormglass Cay ficou para trás. O Log Pose aponta para águas desconhecidas.")
+            return hub(world, actorId, "Stormglass Cay ficou para trás. O Log Pose oferece várias rotas pela Grand Line.")
         }
         if (actorId in restored.scenario.actedThisStage) {
             return GamePresentation(GameScreen.WAITING_FOR_PARTNER, "Decisão registrada", "Aguardando a outra decisão.", statusFor(world, actorId))
@@ -146,16 +147,30 @@ object GamePresenter {
 
     private fun hub(world: WorldState, actorId: String, body: String): GamePresentation {
         val actions = buildList {
-            if (actorId == "p1") add(GameAction("SAIL", "Zarpar para a próxima ilha", "CAMPAIGN"))
+            if (actorId == "p1") {
+                val voyageIndex = world.worldFlags["world.voyages"]?.toIntOrNull()
+                    ?: world.worldFlags["campaign.chapter"]?.toIntOrNull()
+                    ?: 0
+                GrandLineWorldAtlas.availableDestinations(world.campaignId, world.islandId, voyageIndex).forEach { island ->
+                    add(
+                        GameAction(
+                            island.id,
+                            "Zarpar: ${island.name} • perigo ${island.danger}/10 • ${island.climate}",
+                            "CAMPAIGN",
+                        )
+                    )
+                }
+            }
             add(GameAction("INVENTORY", "Inventário e equipamento", "MENU"))
             add(GameAction("SHOP", "Mercado da ilha", "MENU"))
             add(GameAction("SHIP", "Navio e suprimentos", "MENU"))
             add(GameAction("CREW", "Tripulação", "MENU"))
             add(GameAction("TRAINING", "Poderes e treino", "MENU"))
         }
+        val island = GrandLineWorldAtlas.describe(world.campaignId, world.islandId)
         return GamePresentation(
             GameScreen.HUB,
-            world.shipState?.name ?: "Tripulação",
+            "${world.shipState?.name ?: "Tripulação"} • ${island.name}",
             body,
             statusFor(world, actorId),
             actions,
@@ -165,12 +180,14 @@ object GamePresenter {
     private fun statusFor(world: WorldState, actorId: String): List<String> {
         val p = world.players[actorId]
         val ship = world.shipState
+        val island = GrandLineWorldAtlas.describe(world.campaignId, world.islandId)
         return buildList {
             if (p != null) {
                 add("PV ${p.hp}/${p.maxHp} • PE ${p.energy}/${p.maxEnergy}")
                 p.profile?.classMastery?.let { add(ClassPathDisplay.primaryProgress(it)) }
                 add("Recompensa ${p.bounty} Berries")
             }
+            add("Ilha ${island.name} • perigo ${island.danger}/10")
             add("Caixa ${world.partyBerries} Berries")
             if (ship != null) add("Navio ${ship.hull}/${ship.maxHull} • Suprimentos ${ship.supplies}/${ship.maxSupplies}")
         }
