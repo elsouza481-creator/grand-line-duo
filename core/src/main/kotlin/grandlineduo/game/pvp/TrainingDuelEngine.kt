@@ -96,6 +96,13 @@ object TrainingDuelEngine {
         return world.copy(worldFlags = clearActive(world.worldFlags))
     }
 
+    fun cancel(world: WorldState, actorId: String): WorldState {
+        val duel = requireNotNull(state(world)) { "No training duel challenge is pending" }
+        require(duel.status == TrainingDuelStatus.CHALLENGED) { "Active duel cannot be cancelled" }
+        require(actorId == duel.challengerId) { "Only the challenger can cancel the duel" }
+        return world.copy(worldFlags = clearActive(world.worldFlags))
+    }
+
     fun submitAction(world: WorldState, actorId: String, action: TrainingDuelAction): WorldState {
         val duel = requireNotNull(state(world)) { "No active training duel" }
         require(duel.status == TrainingDuelStatus.ACTIVE) { "Training duel has not been accepted" }
