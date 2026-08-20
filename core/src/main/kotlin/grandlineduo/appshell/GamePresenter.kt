@@ -8,6 +8,9 @@ import grandlineduo.game.combat.CombatActionType
 import grandlineduo.game.combat.CombatStatus
 import grandlineduo.game.scenario.StormglassCayScenario
 import grandlineduo.game.powers.PowerTechniqueEngine
+import grandlineduo.game.pvp.TrainingDuelAction
+import grandlineduo.game.pvp.TrainingDuelEngine
+import grandlineduo.game.pvp.TrainingDuelStatus
 import grandlineduo.game.ship.VoyageAction
 import grandlineduo.game.world.ExplorationCombatEngine
 import grandlineduo.game.world.ExplorationDirection
@@ -170,6 +173,10 @@ object GamePresenter {
         val map = ExplorationEngine.mapFor(world.campaignId, world.islandId)
         val playerPosition = ExplorationEngine.position(world, actorId)
         val interaction = ExplorationEngine.interactionAt(world, actorId)
+        val partnerId = if (actorId == "p1") "p2" else "p1"
+        val partner = world.players[partnerId]
+        val partnerInteraction = ExplorationEngine.interactionAt(world, partnerId)
+        val duel = TrainingDuelEngine.state(world)
         val npc = map.npcs[playerPosition]
         val objective = map.questObjectives[playerPosition]
         val pickup = map.pickups[playerPosition]?.takeUnless { ExplorationLootEngine.isCollected(world, it.id) }
@@ -220,52 +227,92 @@ object GamePresenter {
                 }
             }
         }
+        val duelContext = when (duel?.status) {
+            TrainingDuelStatus.CHALLENGED -> if (actorId == duel.challengerId) {
+                "DUELO DE TREINO • desafio enviado a ${partner?.name ?: partnerId}. Aguardando resposta na arena."
+            } else {
+                "DUELO DE TREINO • ${partner?.name ?: partnerId} desafiou você. Aceite ou recuse o combate não letal."
+            }
+            TrainingDuelStatus.ACTIVE -> {
+                val ownHp = duel.duelHp[actorId] ?: 0
+                val rivalHp = duel.duelHp[partnerId] ?: 0
+                val waiting = if (actorId in duel.lockedActions) {
+                    " Sua ação está travada. Aguardando o rival."
+                } else {
+                    " Escolha sua ação; a rodada resolve quando ambos decidirem."
+                }
+                "DUELO • rodada ${duel.round} • você $ownHp PV • rival $rivalHp PV.$waiting"
+            }
+            null -> null
+        }
 
         val actions = buildList {
-            ExplorationDirection.entries.forEach { direction ->
-                add(GameAction(direction.name, explorationLabel(direction), "EXPLORE_MOVE"))
-            }
-            add(GameAction("INVENTORY", "Inventário e equipamento", "MENU"))
-            add(GameAction("QUESTS", "Diário de missões", "MENU"))
-
-            if (npc?.questId != null) {
-                when (ExplorationQuestEngine.status(world, actorId, npc.questId)) {
-                    ExplorationQuestStatus.AVAILABLE -> add(
-                        GameAction(npc.questId, "Aceitar missão de ${npc.name}", "QUEST_ACCEPT")
-                    )
-                    ExplorationQuestStatus.OBJECTIVE_COMPLETE -> add(
-                        GameAction(npc.questId, "Entregar missão a ${npc.name}", "QUEST_TURN_IN")
-                    )
-                    ExplorationQuestStatus.ACTIVE, ExplorationQuestStatus.TURNED_IN -> Unit
-                }
-            }
-            if (objective != null && ExplorationQuestEngine.status(world, actorId, objective.questId) == ExplorationQuestStatus.ACTIVE) {
-                add(GameAction(objective.questId, "Investigar: ${objective.label}", "QUEST_PROGRESS"))
-            }
-            if (pickup != null) {
-                add(GameAction(pickup.id, "Coletar cache de suprimentos", "LOOT_COLLECT"))
-            }
-
-            when (interaction) {
-                ExplorationInteraction.MARKET -> add(GameAction("SHOP", "Entrar no mercado", "MENU"))
-                ExplorationInteraction.TRAINING -> add(GameAction("TRAINING", "Treinar nesta área", "MENU"))
-                ExplorationInteraction.SHIP -> add(GameAction("SHIP", "Gerenciar o navio", "MENU"))
-                ExplorationInteraction.CREW -> add(GameAction("CREW", "Falar com a tripulação", "MENU"))
-                ExplorationInteraction.DOCK -> if (actorId == "p1") {
-                    val voyageIndex = world.worldFlags["world.voyages"]?.toIntOrNull()
-                        ?: world.worldFlags["campaign.chapter"]?.toIntOrNull()
-                        ?: 0
-                    GrandLineWorldAtlas.availableDestinations(world.campaignId, world.islandId, voyageIndex).forEach { island ->
-                        add(
-                            GameAction(
-                                island.id,
-                                "Zarpar: ${island.name} • perigo ${island.danger}/10 • ${island.climate}",
-                                "CAMPAIGN",
-                            )
-                        )
+            if (duel != null) {
+                when (duel.status) {
+                    TrainingDuelStatus.CHALLENGED -> if (actorId == duel.opponentId) {
+                        add(GameAction("", "Aceitar duelo", "DUEL_ACCEPT"))
+                        add(GameAction("", "Recusar duelo", "DUEL_DECLINE"))
+                    }
+                    TrainingDuelStatus.ACTIVE -> {
+                        if (actorId !in duel.lockedActions) {
+                            TrainingDuelAction.entries.forEach { action ->
+                                add(GameAction(action.name, duelActionLabel(action), "DUEL_ACTION"))
+                            }
+                        }
+                        add(GameAction("", "Desistir do duelo", "DUEL_FORFEIT"))
                     }
                 }
-                null -> Unit
+            } else {
+                ExplorationDirection.entries.forEach { direction ->
+                    add(GameAction(direction.name, explorationLabel(direction), "EXPLORE_MOVE"))
+                }
+                add(GameAction("INVENTORY", "Inventário e equipamento", "MENU"))
+                add(GameAction("QUESTS", "Diário de missões", "MENU"))
+
+                if (npc?.questId != null) {
+                    when (ExplorationQuestEngine.status(world, actorId, npc.questId)) {
+                        ExplorationQuestStatus.AVAILABLE -> add(
+                            GameAction(npc.questId, "Aceitar missão de ${npc.name}", "QUEST_ACCEPT")
+                        )
+                        ExplorationQuestStatus.OBJECTIVE_COMPLETE -> add(
+                            GameAction(npc.questId, "Entregar missão a ${npc.name}", "QUEST_TURN_IN")
+                        )
+                        ExplorationQuestStatus.ACTIVE, ExplorationQuestStatus.TURNED_IN -> Unit
+                    }
+                }
+                if (objective != null && ExplorationQuestEngine.status(world, actorId, objective.questId) == ExplorationQuestStatus.ACTIVE) {
+                    add(GameAction(objective.questId, "Investigar: ${objective.label}", "QUEST_PROGRESS"))
+                }
+                if (pickup != null) {
+                    add(GameAction(pickup.id, "Coletar cache de suprimentos", "LOOT_COLLECT"))
+                }
+
+                when (interaction) {
+                    ExplorationInteraction.MARKET -> add(GameAction("SHOP", "Entrar no mercado", "MENU"))
+                    ExplorationInteraction.TRAINING -> {
+                        add(GameAction("TRAINING", "Treinar nesta área", "MENU"))
+                        if (partnerInteraction == ExplorationInteraction.TRAINING) {
+                            add(GameAction("", "Desafiar ${partner?.name ?: partnerId} para duelo", "DUEL_CHALLENGE"))
+                        }
+                    }
+                    ExplorationInteraction.SHIP -> add(GameAction("SHIP", "Gerenciar o navio", "MENU"))
+                    ExplorationInteraction.CREW -> add(GameAction("CREW", "Falar com a tripulação", "MENU"))
+                    ExplorationInteraction.DOCK -> if (actorId == "p1") {
+                        val voyageIndex = world.worldFlags["world.voyages"]?.toIntOrNull()
+                            ?: world.worldFlags["campaign.chapter"]?.toIntOrNull()
+                            ?: 0
+                        GrandLineWorldAtlas.availableDestinations(world.campaignId, world.islandId, voyageIndex).forEach { island ->
+                            add(
+                                GameAction(
+                                    island.id,
+                                    "Zarpar: ${island.name} • perigo ${island.danger}/10 • ${island.climate}",
+                                    "CAMPAIGN",
+                                )
+                            )
+                        }
+                    }
+                    null -> Unit
+                }
             }
         }
         val island = GrandLineWorldAtlas.describe(world.campaignId, world.islandId)
@@ -304,6 +351,7 @@ object GamePresenter {
         val contextualBody = buildList {
             add(body)
             physicalContext?.let(::add)
+            duelContext?.let(::add)
             bossHuntIntel?.let(::add)
             fieldBossIntel?.let(::add)
         }.joinToString("\n")
@@ -346,6 +394,12 @@ object GamePresenter {
         ExplorationDirection.SOUTH -> "Mover ↓"
         ExplorationDirection.WEST -> "Mover ←"
         ExplorationDirection.EAST -> "Mover →"
+    }
+
+    private fun duelActionLabel(action: TrainingDuelAction): String = when (action) {
+        TrainingDuelAction.ATTACK -> "Atacar rival"
+        TrainingDuelAction.DEFEND -> "Defender"
+        TrainingDuelAction.DODGE -> "Esquivar"
     }
 
     private fun combatLabel(type: CombatActionType): String = when (type) {
