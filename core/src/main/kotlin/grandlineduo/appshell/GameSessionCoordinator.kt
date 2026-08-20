@@ -187,6 +187,7 @@ class GameSessionCoordinator(private val saveRoot: Path? = null) : Closeable {
     fun advanceCampaign(targetIslandId: String? = null): WorldState {
         require(mode == SessionMode.SOLO || mode == SessionMode.HOST_COOP) { "Only P1 can set sail" }
         postProcessHostState()
+        if (mode == SessionMode.SOLO) recoverSoloCompanionBeforeVoyage()
         val world = worldState()
         require(world.activeCombat == null && StormglassPersistenceAdapter.decode(world).combat == null) { "Cannot sail during combat" }
         require(world.activeVoyage == null) { "A voyage incident is already active" }
@@ -399,6 +400,34 @@ class GameSessionCoordinator(private val saveRoot: Path? = null) : Closeable {
             val choice = StormglassCayScenario().view(scenario, "p2").choices.firstOrNull() ?: return
             handler!!.handle(GameplayWireCommand.ScenarioChoice(nextCommandId("ai-scenario"), "p2", choice.id), System.currentTimeMillis())
         }
+    }
+
+    /** Solo P2 manages its own healing supplies before a new sea leg. */
+    private fun recoverSoloCompanionBeforeVoyage() {
+        val host = hostReplica ?: return
+        var next = host.state
+        val before = next.players["p2"] ?: return
+        if (before.hp >= before.maxHp) return
+
+        var used = 0
+        while ((next.players["p2"]?.hp ?: 0) < (next.players["p2"]?.maxHp ?: 0)) {
+            val inventory = grandlineduo.game.InventoryEngine.read(next, "p2")
+            val itemId = listOf("bandage", "ration").firstOrNull { (inventory.items[it] ?: 0) > 0 } ?: break
+            next = grandlineduo.game.InventoryEngine.use(next, "p2", itemId)
+            used++
+        }
+        if (used == 0) return
+
+        replaceHostWorld(
+            next = next,
+            prefix = "ai-recover",
+            fingerprint = "ai-recover|${host.state.lastEventId}|$used",
+            metadata = mapOf(
+                "meta.aiRecovery" to "p2",
+                "meta.aiRecoveryItems" to used.toString(),
+                "meta.aiRecoveryHp" to next.players.getValue("p2").hp.toString(),
+            ),
+        )
     }
 
     private fun postProcessHostState() {
