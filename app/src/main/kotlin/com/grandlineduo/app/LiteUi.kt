@@ -636,7 +636,7 @@ class TrainingScreen(context: Context) : ScrollView(context) {
             }
         } else {
             val primary = classMastery.primaryClass
-            val perks = ClassMasteryEngine.unlockedPerks(classMastery, primary)
+            val perks = ClassMasteryEngine.unlockedPerks(primary, classMastery.levelOf(primary))
             root.addView(TextView(context).apply {
                 text = buildString {
                     append(ClassPathDisplay.primaryProgress(classMastery))
