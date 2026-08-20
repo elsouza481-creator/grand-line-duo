@@ -22,7 +22,19 @@ data class VoyageIncident(
 data class VoyageEncounter(
     val incident: VoyageIncident,
     val actions: Map<String, VoyageAction> = emptyMap(),
-)
+    val participants: Set<String> = setOf("p1", "p2"),
+) {
+    init {
+        require(participants.size in 2..4) { "Voyage must have two to four participants" }
+        require("p1" in participants) { "Authoritative P1 must participate in a voyage" }
+        require(participants.all { it in HUMAN_PLAYER_IDS }) { "Unknown voyage participant" }
+        require(actions.keys.all { it in participants }) { "Voyage action belongs to a non participant" }
+    }
+
+    companion object {
+        private val HUMAN_PLAYER_IDS = setOf("p1", "p2", "p3", "p4")
+    }
+}
 
 data class VoyageResolution(
     val success: Boolean,
@@ -33,10 +45,8 @@ data class VoyageResolution(
 )
 
 object VoyageEngine {
-    private val players = setOf("p1", "p2")
-
     fun lockAction(encounter: VoyageEncounter, playerId: String, action: VoyageAction): VoyageEncounter {
-        require(playerId in players) { "Unknown voyage player $playerId" }
+        require(playerId in encounter.participants) { "Unknown voyage player $playerId" }
         require(playerId !in encounter.actions) { "$playerId already locked a voyage action" }
         return encounter.copy(actions = encounter.actions + (playerId to action))
     }
@@ -47,7 +57,7 @@ object VoyageEngine {
         crew: CrewState = CrewState(),
         profiles: Map<String, CharacterProfile?> = emptyMap(),
     ): VoyageResolution? =
-        if (encounter.actions.keys == players) resolve(ship, encounter, crew, profiles) else null
+        if (encounter.actions.keys == encounter.participants) resolve(ship, encounter, crew, profiles) else null
 
     fun resolve(
         ship: ShipState,
@@ -55,7 +65,9 @@ object VoyageEngine {
         crew: CrewState = CrewState(),
         profiles: Map<String, CharacterProfile?> = emptyMap(),
     ): VoyageResolution {
-        require(encounter.actions.keys == players) { "Both voyage actions must be locked before resolution" }
+        require(encounter.actions.keys == encounter.participants) {
+            "Every voyage participant must lock exactly one action before resolution"
+        }
         val incident = encounter.incident
         val actions = encounter.actions.values.toSet()
         val synergy = synergyFor(incident.type, actions)
