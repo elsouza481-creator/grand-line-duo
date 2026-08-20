@@ -168,6 +168,7 @@ object GamePresenter {
         return buildList {
             if (p != null) {
                 add("PV ${p.hp}/${p.maxHp} • PE ${p.energy}/${p.maxEnergy}")
+                p.profile?.classMastery?.let { add(ClassPathDisplay.primaryProgress(it)) }
                 add("Recompensa ${p.bounty} Berries")
             }
             add("Caixa ${world.partyBerries} Berries")
