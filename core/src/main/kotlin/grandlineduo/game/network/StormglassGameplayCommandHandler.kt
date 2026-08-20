@@ -75,7 +75,7 @@ class StormglassGameplayCommandHandler(
             return existing
         }
 
-        require(command.actorId == "p1" || command.actorId == "p2") { "Unknown player ${command.actorId}" }
+        require(command.actorId in HUMAN_PLAYER_IDS) { "Unknown player ${command.actorId}" }
         val before = hostReplica.state
         if (TrainingDuelEngine.state(before) != null) {
             val isDuelCommand = command is GameplayWireCommand.WorldAction &&
@@ -159,7 +159,15 @@ class StormglassGameplayCommandHandler(
         hostTimestamp: Long,
     ): CampaignEvent {
         val currentPlayer = before.players[command.actorId]
-            ?: throw IllegalArgumentException("Unknown player ${command.actorId}")
+            ?: grandlineduo.core.model.PlayerState(
+                command.actorId,
+                "Jogador ${command.actorId.removePrefix("p")}",
+                20,
+                20,
+                0,
+                10,
+                10,
+            )
         require(currentPlayer.profile == null) { "Character already created for ${command.actorId}" }
         val creation = CharacterCreation.create(command.draft)
         val createdProfile = when (creation) {
@@ -690,6 +698,7 @@ class StormglassGameplayCommandHandler(
     }
 
     companion object {
+        private val HUMAN_PLAYER_IDS = setOf("p1", "p2", "p3", "p4")
         private val BASIC_COMBAT_ACTIONS = setOf(
             CombatActionType.ATTACK,
             CombatActionType.DEFEND,
