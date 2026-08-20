@@ -90,6 +90,7 @@ fun main() {
     grandlineduo.game.ship.ShipEngineTest.register()
     grandlineduo.game.ship.ShipPersistenceTest.register()
     grandlineduo.game.ship.VoyageEngineTest.register()
+    grandlineduo.game.ship.ClassMasteryVoyageIntegrationTest.register()
     grandlineduo.game.ship.ShipCoopIntegrationTest.register()
     grandlineduo.game.ship.ShipDirectorBridgeTest.register()
     grandlineduo.game.crew.CrewEngineTest.register()
