@@ -116,6 +116,7 @@ object ExplorationEngine {
             }
         }
 
+        // Guaranteed connected town cross and central plaza.
         for (x in 1 until WIDTH - 1) tiles[GridPosition(x, SPAWN.y)] = ExplorationTile.ROAD
         for (y in 1 until HEIGHT - 1) tiles[GridPosition(SPAWN.x, y)] = ExplorationTile.ROAD
         for (y in SPAWN.y - 2..SPAWN.y + 2) {
@@ -165,22 +166,29 @@ object ExplorationEngine {
         )
 
         val danger = GrandLineWorldAtlas.describe(campaignId, islandId).danger.coerceIn(1, 10)
-        val enemyPosition = GridPosition(SPAWN.x + 7, SPAWN.y)
-        tiles[enemyPosition] = ExplorationTile.ROAD
-        val archetype = ExplorationEnemyCatalog.select(campaignId, islandId)
-        val profile = ExplorationEnemyCatalog.profile(archetype, danger)
-        val enemy = ExplorationEnemy(
-            id = "road-hostile-$islandId",
-            name = profile.name,
-            archetype = archetype,
-            position = enemyPosition,
-            maxHp = profile.maxHp,
-            attackPower = profile.attackPower,
-            rewardBerries = profile.rewardBerries,
-            rewardItemId = profile.rewardItemId,
-            rewardItemAmount = profile.rewardItemAmount,
-            initialAttackType = profile.initialAttackType,
+        val encounterSpecs = listOf(
+            Triple("east", "road-hostile-$islandId", GridPosition(SPAWN.x + 7, SPAWN.y)),
+            Triple("west", "west-hostile-$islandId", GridPosition(SPAWN.x - 7, SPAWN.y)),
+            Triple("north", "north-hostile-$islandId", GridPosition(SPAWN.x, SPAWN.y - 6)),
         )
+        val enemies = linkedMapOf<GridPosition, ExplorationEnemy>()
+        encounterSpecs.forEach { (slotId, enemyId, position) ->
+            tiles[position] = ExplorationTile.ROAD
+            val archetype = ExplorationEnemyCatalog.select(campaignId, islandId, slotId)
+            val profile = ExplorationEnemyCatalog.profile(archetype, danger)
+            enemies[position] = ExplorationEnemy(
+                id = enemyId,
+                name = profile.name,
+                archetype = archetype,
+                position = position,
+                maxHp = profile.maxHp,
+                attackPower = profile.attackPower,
+                rewardBerries = profile.rewardBerries,
+                rewardItemId = profile.rewardItemId,
+                rewardItemAmount = profile.rewardItemAmount,
+                initialAttackType = profile.initialAttackType,
+            )
+        }
 
         return ExplorationMap(
             width = WIDTH,
@@ -191,7 +199,7 @@ object ExplorationEngine {
             npcs = mapOf(questGiver.position to questGiver),
             questObjectives = mapOf(objective.position to objective),
             pickups = mapOf(pickup.position to pickup),
-            enemies = mapOf(enemy.position to enemy),
+            enemies = enemies.toMap(),
         )
     }
 
