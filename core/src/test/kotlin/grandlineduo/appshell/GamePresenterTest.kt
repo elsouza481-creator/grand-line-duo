@@ -17,6 +17,8 @@ import grandlineduo.game.scenario.ScenarioState
 import grandlineduo.game.powers.HakiDiscipline
 import grandlineduo.game.powers.HakiState
 import grandlineduo.game.powers.HakiType
+import grandlineduo.game.world.ExplorationEngine
+import grandlineduo.game.world.ExplorationInteraction
 import grandlineduo.test.assertEquals
 import grandlineduo.test.assertTrue
 import grandlineduo.test.test
@@ -46,16 +48,33 @@ object GamePresenterTest {
             assertTrue(presentation.actions.any { it.id == "help_dockworker" })
         }
 
-        test("hub exposes three open world routes only to authoritative P1") {
+        test("hub exposes a physical map movement and interactions only at their tiles") {
             val root = java.nio.file.Files.createTempDirectory("gld-present-hub")
             GameSessionCoordinator(root).use { session ->
                 session.startSolo("hub-present")
                 session.createCharacter(GameSessionCoordinatorTest.validDraft("Lio"))
                 val complete = session.worldState().copy(worldFlags = session.worldState().worldFlags + ("sg.stage" to "COMPLETE"))
-                val p1 = GamePresenter.present(complete, "p1")
-                val p2 = GamePresenter.present(complete, "p2")
-                assertTrue(p1.actions.any { it.id == "SHOP" })
-                assertTrue(p1.actions.any { it.id == "TRAINING" })
+                val map = ExplorationEngine.mapFor(complete.campaignId, complete.islandId)
+
+                val spawn = GamePresenter.present(complete, "p1")
+                assertEquals(map.spawn, spawn.exploration?.playerPosition)
+                assertEquals(4, spawn.actions.count { it.kind == "EXPLORE_MOVE" })
+                assertTrue(spawn.actions.any { it.id == "INVENTORY" && it.kind == "MENU" })
+                assertTrue(spawn.actions.none { it.id in setOf("SHOP", "TRAINING", "SHIP", "CREW") })
+                assertTrue(spawn.actions.none { it.kind == "CAMPAIGN" })
+
+                val marketTile = map.interactions.entries.first { it.value == ExplorationInteraction.MARKET }.key
+                val marketWorld = ExplorationEngine.place(complete, "p1", marketTile)
+                val market = GamePresenter.present(marketWorld, "p1")
+                assertEquals(ExplorationInteraction.MARKET, market.exploration?.interaction)
+                assertTrue(market.actions.any { it.id == "SHOP" && it.kind == "MENU" })
+                assertTrue(market.actions.none { it.id == "TRAINING" })
+
+                val dockTile = map.interactions.entries.first { it.value == ExplorationInteraction.DOCK }.key
+                var dockWorld = ExplorationEngine.place(complete, "p1", dockTile)
+                dockWorld = ExplorationEngine.place(dockWorld, "p2", dockTile)
+                val p1 = GamePresenter.present(dockWorld, "p1")
+                val p2 = GamePresenter.present(dockWorld, "p2")
                 val routes = p1.actions.filter { it.kind == "CAMPAIGN" }
                 assertEquals(3, routes.size)
                 assertEquals(setOf("emberwake", "brineveil", "gearfall"), routes.map { it.id }.toSet())
