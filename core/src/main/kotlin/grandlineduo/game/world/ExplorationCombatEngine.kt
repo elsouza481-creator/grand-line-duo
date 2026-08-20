@@ -5,7 +5,6 @@ import grandlineduo.game.InventoryEngine
 import grandlineduo.game.combat.CombatStatus
 import grandlineduo.game.combat.CombatState
 import grandlineduo.game.combat.Combatant
-import grandlineduo.game.combat.EnemyAttackType
 import grandlineduo.game.combat.EnemyCombatant
 import grandlineduo.game.combat.EnemyTelegraph
 
@@ -58,7 +57,7 @@ object ExplorationCombatEngine {
                 maxHp = enemy.maxHp,
                 attackPower = enemy.attackPower,
             ),
-            telegraph = EnemyTelegraph(EnemyAttackType.HEAVY_STRIKE, target),
+            telegraph = EnemyTelegraph(enemy.initialAttackType, target),
         )
         return world.copy(
             activeCombat = combat,
