@@ -26,6 +26,7 @@ import grandlineduo.core.model.WorldState
 import grandlineduo.game.character.Attribute
 import grandlineduo.game.character.ClassMasteryEngine
 import grandlineduo.game.character.ClassPath
+import grandlineduo.game.character.ClassTrainingRules
 import grandlineduo.game.character.Skill
 import grandlineduo.game.powers.HakiType
 
@@ -661,10 +662,12 @@ class TrainingScreen(context: Context) : ScrollView(context) {
             }
             classSpinner.setSelection(classPaths.indexOf(primary).coerceAtLeast(0))
             root.addView(classSpinner, LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, context.dp(48)).apply { topMargin = context.dp(8) })
-            root.actionButton("Treinar classe selecionada • +25 XP") {
+            root.actionButton(
+                "Treinar classe selecionada • +${ClassTrainingRules.EXPERIENCE_GAIN} XP • ${ClassTrainingRules.ENERGY_COST} PE"
+            ) {
                 val path = classPaths[classSpinner.selectedItemPosition.coerceIn(classPaths.indices)]
                 onWorldAction?.invoke("TRAIN_CLASS", path.name, 1)
-            }
+            }.isEnabled = player.energy >= ClassTrainingRules.ENERGY_COST
         }
 
         root.sectionTitle("ATRIBUTOS")
