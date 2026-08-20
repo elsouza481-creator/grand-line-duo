@@ -46,6 +46,7 @@ import grandlineduo.game.ship.VoyageAction
 import grandlineduo.game.ship.VoyageEngine
 import grandlineduo.game.world.ExplorationDirection
 import grandlineduo.game.world.ExplorationEngine
+import grandlineduo.game.world.ExplorationInteraction
 
 class StormglassGameplayCommandHandler(
     private val hostReplica: HostReplica,
@@ -214,7 +215,11 @@ class StormglassGameplayCommandHandler(
             "World management is unavailable during combat"
         }
         require(before.activeVoyage == null) { "World management is unavailable during a voyage incident" }
-        val nextWorld = when (command.actionType.uppercase()) {
+        val actionType = command.actionType.uppercase()
+        requiredInteraction(actionType)?.let { expected ->
+            requirePhysicalInteraction(before, command.actorId, expected)
+        }
+        val nextWorld = when (actionType) {
             "EXPLORE_MOVE" -> {
                 val direction = try {
                     ExplorationDirection.valueOf(command.target.uppercase())
@@ -350,12 +355,33 @@ class StormglassGameplayCommandHandler(
                 actorId = command.actorId,
                 nextState = nextWorld,
                 sourceFingerprint = fingerprint,
-                metadata = mapOf("meta.worldAction" to command.actionType.uppercase(), "meta.worldTarget" to command.target),
+                metadata = mapOf("meta.worldAction" to actionType, "meta.worldTarget" to command.target),
             ),
             hostTimestamp,
         )
         persist(result.event)
         return result.event
+    }
+
+    private fun requiredInteraction(actionType: String): ExplorationInteraction? = when (actionType) {
+        "SHOP_BUY", "SHOP_SELL" -> ExplorationInteraction.MARKET
+        "SHIP_REPAIR", "SHIP_RESUPPLY", "SHIP_UPGRADE" -> ExplorationInteraction.SHIP
+        "CREW_RECRUIT", "CREW_ROLE" -> ExplorationInteraction.CREW
+        "TRAIN_ATTRIBUTE", "UPGRADE_ATTRIBUTE", "TRAIN_SKILL", "UPGRADE_SKILL",
+        "CHOOSE_CLASS", "TRAIN_CLASS", "HAKI_AWAKEN", "HAKI_TRAIN",
+        "FRUIT_EAT", "FRUIT_IDENTIFY", "FRUIT_TRAIN" -> ExplorationInteraction.TRAINING
+        else -> null
+    }
+
+    private fun requirePhysicalInteraction(
+        world: grandlineduo.core.model.WorldState,
+        playerId: String,
+        expected: ExplorationInteraction,
+    ) {
+        val actual = ExplorationEngine.interactionAt(world, playerId)
+        require(actual == expected) {
+            "${expected.name.lowercase().replace('_', ' ')} interaction requires the matching physical tile"
+        }
     }
 
     private fun updateProfile(
@@ -610,5 +636,4 @@ class StormglassGameplayCommandHandler(
             CombatActionType.FINISHER,
         )
     }
-
 }
