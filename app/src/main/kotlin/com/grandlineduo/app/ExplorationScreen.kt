@@ -38,6 +38,8 @@ private object WorldUiColors {
     const val PLAYER = 0xFFFFD45AL
     const val OUTLINE = 0xFF071017L
     const val MARKER = 0xFFF7F0D8L
+    const val NPC = 0xFF6FD3C8L
+    const val QUEST = 0xFFFF8F4EL
 }
 
 class ExplorationScreen(context: Context) : ScrollView(context) {
@@ -139,7 +141,7 @@ class ExplorationScreen(context: Context) : ScrollView(context) {
         ExplorationInteraction.TRAINING -> "✦ Área de treino — progressão disponível aqui"
         ExplorationInteraction.SHIP -> "▰ Navio — manutenção e melhorias disponíveis"
         ExplorationInteraction.CREW -> "● Tripulação — gestão dos companheiros"
-        null -> "Caminhe pelas ruas e procure os pontos marcados no mapa."
+        null -> "Caminhe pelas ruas. NPCs têm ! e objetivos ativos aparecem com ?."
     }
 
     private fun actionButton(label: String, click: () -> Unit) = Button(context).apply {
@@ -176,21 +178,26 @@ private class ExplorationMapView(context: Context) : View(context) {
         typeface = Typeface.DEFAULT_BOLD
     }
     private var viewport: ExplorationViewportState? = null
+    private var presentation: ExplorationPresentation? = null
 
     fun render(presentation: ExplorationPresentation) {
+        this.presentation = presentation
         viewport = ExplorationViewport.build(
             map = presentation.map,
             playerPosition = presentation.playerPosition,
             width = 11,
             height = 9,
         )
-        contentDescription = "Mapa da ilha. Posição ${presentation.playerPosition.x}, ${presentation.playerPosition.y}."
+        val npcCount = presentation.map.npcs.size
+        val activeObjectives = presentation.visibleQuestObjectives.size
+        contentDescription = "Mapa da ilha. Posição ${presentation.playerPosition.x}, ${presentation.playerPosition.y}. $npcCount NPC. $activeObjectives objetivo ativo."
         invalidate()
     }
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         val data = viewport ?: return
+        val model = presentation ?: return
         canvas.drawColor(WorldUiColors.WATER_DEEP.toInt())
 
         val cellWidth = width.toFloat() / data.width
@@ -230,6 +237,24 @@ private class ExplorationMapView(context: Context) : View(context) {
                 marker.textSize = size * 0.40f
                 val baseline = rect.centerY() - (marker.ascent() + marker.descent()) / 2f
                 canvas.drawText(interactionGlyph(interaction), rect.centerX(), baseline, marker)
+            }
+
+            if (cell.position in model.visibleQuestObjectives) {
+                fill.color = WorldUiColors.QUEST.toInt()
+                canvas.drawCircle(rect.right - size * 0.22f, rect.top + size * 0.22f, size * 0.18f, fill)
+                marker.color = WorldUiColors.OUTLINE.toInt()
+                marker.textSize = size * 0.28f
+                val baseline = rect.top + size * 0.22f - (marker.ascent() + marker.descent()) / 2f
+                canvas.drawText("?", rect.right - size * 0.22f, baseline, marker)
+            }
+
+            model.map.npcs[cell.position]?.let {
+                fill.color = WorldUiColors.NPC.toInt()
+                canvas.drawCircle(rect.left + size * 0.22f, rect.top + size * 0.22f, size * 0.18f, fill)
+                marker.color = WorldUiColors.OUTLINE.toInt()
+                marker.textSize = size * 0.28f
+                val baseline = rect.top + size * 0.22f - (marker.ascent() + marker.descent()) / 2f
+                canvas.drawText("!", rect.left + size * 0.22f, baseline, marker)
             }
 
             if (cell.isPlayer) {
