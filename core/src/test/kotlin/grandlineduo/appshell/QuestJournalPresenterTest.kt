@@ -11,6 +11,7 @@ import grandlineduo.game.world.ExplorationQuestStatus
 import grandlineduo.test.assertEquals
 import grandlineduo.test.assertTrue
 import grandlineduo.test.test
+import java.nio.file.Files
 
 object QuestJournalPresenterTest {
     fun register() {
@@ -66,6 +67,19 @@ object QuestJournalPresenterTest {
             assertEquals(ExplorationQuestStatus.OBJECTIVE_COMPLETE, completed.status)
             assertTrue("volte" in completed.objective.lowercase())
             assertTrue("rook" in completed.objective.lowercase())
+        }
+
+        test("exploration hub exposes a read-only quest journal menu") {
+            val root = Files.createTempDirectory("gld-quest-journal-menu")
+            GameSessionCoordinator(root).use { session ->
+                session.startSolo("journal-menu")
+                session.createCharacter(GameSessionCoordinatorTest.validDraft("Arlen"))
+                val base = session.worldState()
+                val world = base.copy(worldFlags = base.worldFlags + ("sg.stage" to "COMPLETE"))
+                val view = GamePresenter.present(world, "p1")
+
+                assertTrue(view.actions.any { it.id == "QUESTS" && it.kind == "MENU" })
+            }
         }
     }
 
