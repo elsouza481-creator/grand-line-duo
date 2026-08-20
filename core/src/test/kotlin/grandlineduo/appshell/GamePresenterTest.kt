@@ -19,6 +19,7 @@ import grandlineduo.game.powers.HakiState
 import grandlineduo.game.powers.HakiType
 import grandlineduo.game.world.ExplorationEngine
 import grandlineduo.game.world.ExplorationInteraction
+import grandlineduo.game.world.ExplorationLootEngine
 import grandlineduo.game.world.ExplorationQuestEngine
 import grandlineduo.test.assertEquals
 import grandlineduo.test.assertTrue
@@ -112,6 +113,26 @@ object GamePresenterTest {
             world = ExplorationEngine.place(world, "p1", npc.position)
             val returnView = GamePresenter.present(world, "p1")
             assertTrue(returnView.actions.any { it.kind == "QUEST_TURN_IN" && it.id == questId })
+        }
+
+        test("hub shows shared physical loot until one player collects it") {
+            var world = profiledWorld().copy(
+                worldFlags = profiledWorld().worldFlags + ("sg.stage" to "COMPLETE"),
+            )
+            val pickup = ExplorationEngine.mapFor(world.campaignId, world.islandId).pickups.values.single()
+            world = ExplorationEngine.place(world, "p1", pickup.position)
+
+            val before = GamePresenter.present(world, "p1")
+            assertEquals(setOf(pickup.position), before.exploration?.visiblePickups)
+            assertTrue(before.body.contains(pickup.label))
+            assertTrue(before.actions.any { it.kind == "LOOT_COLLECT" && it.id == pickup.id })
+
+            world = ExplorationLootEngine.collect(world, "p1", pickup.id)
+            val afterP1 = GamePresenter.present(world, "p1")
+            val afterP2 = GamePresenter.present(world, "p2")
+            assertTrue(afterP1.exploration?.visiblePickups?.isEmpty() == true)
+            assertTrue(afterP2.exploration?.visiblePickups?.isEmpty() == true)
+            assertTrue(afterP1.actions.none { it.kind == "LOOT_COLLECT" })
         }
 
         test("presenter exposes primary class mastery progress in status") {
