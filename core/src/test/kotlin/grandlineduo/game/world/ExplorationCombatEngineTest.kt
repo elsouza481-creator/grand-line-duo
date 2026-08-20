@@ -2,6 +2,7 @@ package grandlineduo.game.world
 
 import grandlineduo.core.model.PlayerState
 import grandlineduo.core.model.WorldState
+import grandlineduo.game.InventoryEngine
 import grandlineduo.game.combat.CombatStatus
 import grandlineduo.test.assertEquals
 import grandlineduo.test.assertTrue
@@ -25,6 +26,8 @@ object ExplorationCombatEngineTest {
             assertTrue(enemy.maxHp > 0)
             assertTrue(enemy.attackPower > 0)
             assertTrue(enemy.rewardBerries > 0)
+            assertTrue(enemy.rewardItemId.isNotBlank())
+            assertTrue(enemy.rewardItemAmount > 0)
         }
 
         test("enemy archetypes have distinct combat roles and all scale with island danger") {
@@ -45,6 +48,8 @@ object ExplorationCombatEngineTest {
                 assertTrue(high.maxHp > low.maxHp)
                 assertTrue(high.attackPower > low.attackPower)
                 assertTrue(high.rewardBerries > low.rewardBerries)
+                assertTrue(low.rewardItemId.isNotBlank())
+                assertTrue(high.rewardItemId.isNotBlank())
             }
 
             val bruiser = ExplorationEnemyCatalog.profile(ExplorationEnemyArchetype.BRUISER, danger = 5)
@@ -71,6 +76,32 @@ object ExplorationCombatEngineTest {
             assertEquals(world.players.getValue("p1").hp, combat.players.getValue("p1").hp)
             assertEquals(world.players.getValue("p2").hp, combat.players.getValue("p2").hp)
             assertTrue(ExplorationCombatEngine.isActive(started))
+        }
+
+        test("free roam victory grants deterministic loot to each surviving fighter exactly once") {
+            var world = world("free-roam-loot")
+            val enemy = ExplorationEngine.mapFor(world.campaignId, world.islandId).enemies.values.single()
+            world = ExplorationEngine.place(world, "p1", enemy.position)
+            world = ExplorationCombatEngine.startIfEncountered(world, "p1")
+            val combat = world.activeCombat!!
+            val won = world.copy(
+                activeCombat = combat.copy(
+                    enemy = combat.enemy.copy(hp = 0),
+                    status = CombatStatus.VICTORY,
+                )
+            )
+
+            val beforeP1 = InventoryEngine.read(won, "p1").items[enemy.rewardItemId] ?: 0
+            val beforeP2 = InventoryEngine.read(won, "p2").items[enemy.rewardItemId] ?: 0
+            val completed = ExplorationCombatEngine.completeVictory(won)
+            val afterP1 = InventoryEngine.read(completed, "p1").items[enemy.rewardItemId] ?: 0
+            val afterP2 = InventoryEngine.read(completed, "p2").items[enemy.rewardItemId] ?: 0
+
+            assertEquals(beforeP1 + enemy.rewardItemAmount, afterP1)
+            assertEquals(beforeP2 + enemy.rewardItemAmount, afterP2)
+            val revisited = ExplorationCombatEngine.startIfEncountered(completed, "p1")
+            assertEquals(afterP1, InventoryEngine.read(revisited, "p1").items[enemy.rewardItemId])
+            assertEquals(afterP2, InventoryEngine.read(revisited, "p2").items[enemy.rewardItemId])
         }
 
         test("free roam victory removes the encounter rewards party once and prevents respawn") {
