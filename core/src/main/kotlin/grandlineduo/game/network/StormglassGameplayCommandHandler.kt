@@ -40,6 +40,8 @@ import grandlineduo.game.powers.HakiMasteryResult
 import grandlineduo.game.powers.DevilFruitEngine
 import grandlineduo.game.powers.DevilFruitConsumeResult
 import grandlineduo.game.powers.DevilFruitMasteryResult
+import grandlineduo.game.pvp.TrainingDuelAction
+import grandlineduo.game.pvp.TrainingDuelEngine
 import grandlineduo.game.ship.ShipCoordinator
 import grandlineduo.game.ship.ShipEngine
 import grandlineduo.game.ship.ShipUpgrade
@@ -236,6 +238,9 @@ class StormglassGameplayCommandHandler(
         }
         val nextWorld = when (actionType) {
             "EXPLORE_MOVE" -> {
+                require(!TrainingDuelEngine.blocksWorldMovement(before)) {
+                    "Movement is locked while a training duel challenge or duel is active"
+                }
                 val direction = try {
                     ExplorationDirection.valueOf(command.target.uppercase())
                 } catch (_: IllegalArgumentException) {
@@ -244,6 +249,18 @@ class StormglassGameplayCommandHandler(
                 val moved = ExplorationEngine.move(before, command.actorId, direction)
                 ExplorationCombatEngine.startIfEncountered(moved, command.actorId)
             }
+            "DUEL_CHALLENGE" -> TrainingDuelEngine.challenge(before, command.actorId)
+            "DUEL_ACCEPT" -> TrainingDuelEngine.accept(before, command.actorId)
+            "DUEL_DECLINE" -> TrainingDuelEngine.decline(before, command.actorId)
+            "DUEL_ACTION" -> {
+                val action = try {
+                    TrainingDuelAction.valueOf(command.target.uppercase())
+                } catch (_: IllegalArgumentException) {
+                    throw IllegalArgumentException("Unknown training duel action ${command.target}")
+                }
+                TrainingDuelEngine.submitAction(before, command.actorId, action)
+            }
+            "DUEL_FORFEIT" -> TrainingDuelEngine.forfeit(before, command.actorId)
             "QUEST_ACCEPT" -> ExplorationQuestEngine.accept(before, command.actorId, command.target)
             "QUEST_PROGRESS" -> ExplorationQuestEngine.progress(before, command.actorId, command.target)
             "QUEST_TURN_IN" -> ExplorationQuestEngine.turnIn(before, command.actorId, command.target)
