@@ -11,6 +11,7 @@ import grandlineduo.game.powers.PowerTechniqueEngine
 import grandlineduo.game.ship.VoyageAction
 import grandlineduo.game.world.ExplorationCombatEngine
 import grandlineduo.game.world.ExplorationDirection
+import grandlineduo.game.world.ExplorationEnemyRank
 import grandlineduo.game.world.ExplorationEngine
 import grandlineduo.game.world.ExplorationInteraction
 import grandlineduo.game.world.ExplorationLootEngine
@@ -185,6 +186,18 @@ object GamePresenter {
             .filterNot { ExplorationCombatEngine.isDefeated(world, it.id) }
             .map { it.position }
             .toSet()
+        val fieldBoss = map.enemies.values.firstOrNull { it.rank == ExplorationEnemyRank.FIELD_BOSS }
+        val fieldBossIntel = fieldBoss?.let { boss ->
+            val remaining = ExplorationCombatEngine.stepsUntilRespawn(world, boss.id)
+            when {
+                remaining == Int.MAX_VALUE ->
+                    "CHEFE DE CAMPO • ${boss.name} • derrotado permanentemente • ${boss.maxHp} PV • ataque ${boss.attackPower} • recompensa ${boss.rewardBerries} Berries + ${boss.rewardMasteryExperience} XP"
+                remaining > 0 ->
+                    "CHEFE DE CAMPO • ${boss.name} • derrotado • reaparece em $remaining passos • ${boss.maxHp} PV • ataque ${boss.attackPower} • recompensa ${boss.rewardBerries} Berries + ${boss.rewardMasteryExperience} XP"
+                else ->
+                    "CHEFE DE CAMPO • ${boss.name} • ATIVO • ${boss.maxHp} PV • ataque ${boss.attackPower} • recompensa ${boss.rewardBerries} Berries + ${boss.rewardMasteryExperience} XP • respawn ${boss.respawnSteps} passos após vitória"
+            }
+        }
 
         val actions = buildList {
             ExplorationDirection.entries.forEach { direction ->
@@ -250,7 +263,11 @@ object GamePresenter {
             interaction == ExplorationInteraction.CREW -> "A tripulação se reúne neste ponto."
             else -> null
         }
-        val contextualBody = if (physicalContext == null) body else "$body\n$physicalContext"
+        val contextualBody = buildList {
+            add(body)
+            physicalContext?.let(::add)
+            fieldBossIntel?.let(::add)
+        }.joinToString("\n")
         return GamePresentation(
             screen = GameScreen.HUB,
             title = "${world.shipState?.name ?: "Tripulação"} • ${island.name}",
