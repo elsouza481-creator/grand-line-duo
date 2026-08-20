@@ -451,7 +451,8 @@ class StormglassGameplayCommandHandler(
             throw IllegalArgumentException("Unknown voyage action ${command.actionType}")
         }
         val locked = VoyageEngine.lockAction(active, command.actorId, action)
-        val resolution = VoyageEngine.resolveIfReady(ship, locked, before.crewState)
+        val profiles = before.players.mapValues { (_, player) -> player.profile }
+        val resolution = VoyageEngine.resolveIfReady(ship, locked, before.crewState, profiles)
         val nextWorld = if (resolution == null) {
             before.copy(activeVoyage = locked)
         } else {
