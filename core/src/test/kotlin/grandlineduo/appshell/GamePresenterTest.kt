@@ -137,16 +137,19 @@ object GamePresenterTest {
             assertTrue(afterP1.actions.none { it.kind == "LOOT_COLLECT" })
         }
 
-        test("hub shows live physical enemies and hides them after authoritative victory") {
+        test("hub shows all live physical enemies and hides only the defeated encounter") {
             var world = profiledWorld().copy(
                 worldFlags = profiledWorld().worldFlags + ("sg.stage" to "COMPLETE"),
             )
-            val enemy = ExplorationEngine.mapFor(world.campaignId, world.islandId).enemies.values.single()
+            val enemies = ExplorationEngine.mapFor(world.campaignId, world.islandId).enemies.values.sortedBy { it.id }
+            val enemy = enemies.first()
+            val expectedBefore = enemies.map { it.position }.toSet()
+            val expectedAfter = enemies.drop(1).map { it.position }.toSet()
 
             val beforeP1 = GamePresenter.present(world, "p1")
             val beforeP2 = GamePresenter.present(world, "p2")
-            assertEquals(setOf(enemy.position), beforeP1.exploration?.visibleEnemies)
-            assertEquals(setOf(enemy.position), beforeP2.exploration?.visibleEnemies)
+            assertEquals(expectedBefore, beforeP1.exploration?.visibleEnemies)
+            assertEquals(expectedBefore, beforeP2.exploration?.visibleEnemies)
 
             world = ExplorationEngine.place(world, "p1", enemy.position)
             world = ExplorationCombatEngine.startIfEncountered(world, "p1")
@@ -162,8 +165,8 @@ object GamePresenterTest {
 
             val afterP1 = GamePresenter.present(world, "p1")
             val afterP2 = GamePresenter.present(world, "p2")
-            assertTrue(afterP1.exploration?.visibleEnemies?.isEmpty() == true)
-            assertTrue(afterP2.exploration?.visibleEnemies?.isEmpty() == true)
+            assertEquals(expectedAfter, afterP1.exploration?.visibleEnemies)
+            assertEquals(expectedAfter, afterP2.exploration?.visibleEnemies)
         }
 
         test("presenter exposes primary class mastery progress in status") {
