@@ -345,7 +345,8 @@ class InventoryScreen(context: Context) : ScrollView(context) {
                     setBackgroundColor(Palette.PANEL)
                 }
                 panel.addView(TextView(context).apply {
-                    text = "${definition?.name ?: itemId}  ×$amount${if (equipped) "  • EQUIPADO" else ""}"
+                    val rarity = definition?.rarity?.name ?: "DESCONHECIDA"
+                    text = "${definition?.name ?: itemId}  ×$amount • $rarity${if (equipped) "  • EQUIPADO" else ""}"
                     baseText(15f)
                     typeface = Typeface.DEFAULT_BOLD
                 })
