@@ -194,8 +194,14 @@ object GamePresenter {
                     "CHEFE DE CAMPO • ${boss.name} • derrotado permanentemente • ${boss.maxHp} PV • ataque ${boss.attackPower} • recompensa ${boss.rewardBerries} Berries + ${boss.rewardMasteryExperience} XP"
                 remaining > 0 ->
                     "CHEFE DE CAMPO • ${boss.name} • derrotado • reaparece em $remaining passos • ${boss.maxHp} PV • ataque ${boss.attackPower} • recompensa ${boss.rewardBerries} Berries + ${boss.rewardMasteryExperience} XP"
-                else ->
-                    "CHEFE DE CAMPO • ${boss.name} • ATIVO • ${boss.maxHp} PV • ataque ${boss.attackPower} • recompensa ${boss.rewardBerries} Berries + ${boss.rewardMasteryExperience} XP • respawn ${boss.respawnSteps} passos após vitória"
+                else -> {
+                    val firstClearOffer = if (!ExplorationCombatEngine.hasClaimedFirstClear(world, boss.id)) {
+                        " • PRIMEIRA VITÓRIA 2X • Berries + XP"
+                    } else {
+                        ""
+                    }
+                    "CHEFE DE CAMPO • ${boss.name} • ATIVO • ${boss.maxHp} PV • ataque ${boss.attackPower} • recompensa ${boss.rewardBerries} Berries + ${boss.rewardMasteryExperience} XP • respawn ${boss.respawnSteps} passos após vitória$firstClearOffer"
+                }
             }
         }
 
