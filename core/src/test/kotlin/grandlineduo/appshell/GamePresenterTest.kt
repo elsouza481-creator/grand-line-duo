@@ -46,7 +46,7 @@ object GamePresenterTest {
             assertTrue(presentation.actions.any { it.id == "help_dockworker" })
         }
 
-        test("hub exposes shop and only authoritative P1 can set sail") {
+        test("hub exposes three open world routes only to authoritative P1") {
             val root = java.nio.file.Files.createTempDirectory("gld-present-hub")
             GameSessionCoordinator(root).use { session ->
                 session.startSolo("hub-present")
@@ -56,8 +56,11 @@ object GamePresenterTest {
                 val p2 = GamePresenter.present(complete, "p2")
                 assertTrue(p1.actions.any { it.id == "SHOP" })
                 assertTrue(p1.actions.any { it.id == "TRAINING" })
-                assertTrue(p1.actions.any { it.id == "SAIL" })
-                assertTrue(p2.actions.none { it.id == "SAIL" })
+                val routes = p1.actions.filter { it.kind == "CAMPAIGN" }
+                assertEquals(3, routes.size)
+                assertEquals(setOf("emberwake", "brineveil", "gearfall"), routes.map { it.id }.toSet())
+                assertTrue(routes.all { "perigo" in it.label.lowercase() })
+                assertTrue(p2.actions.none { it.kind == "CAMPAIGN" })
             }
         }
 
