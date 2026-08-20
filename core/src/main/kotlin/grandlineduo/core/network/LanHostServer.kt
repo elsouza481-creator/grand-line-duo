@@ -84,22 +84,37 @@ class LanHostServer(
                     WireCodec.write(socket.getOutputStream(), WireMessage.Error("HELLO_REQUIRED"))
                     return
                 }
-            val peerId = hello.peerId
-            if (peerId !in effectiveAllowedClientIds) {
-                WireCodec.write(socket.getOutputStream(), WireMessage.Error("PEER_NOT_ALLOWED"))
+            val automaticSlot = hello.peerId == AUTO_PEER_ID
+            val peerId = synchronized(sessionLock) {
+                val selected = if (automaticSlot) {
+                    effectiveAllowedClientIds.sorted().firstOrNull { candidate ->
+                        activeClients[candidate]?.let { it.isConnected && !it.isClosed } != true
+                    }
+                } else {
+                    hello.peerId.takeIf { it in effectiveAllowedClientIds }
+                }
+                if (selected != null) {
+                    activeClients[selected]
+                        ?.takeIf { it !== socket && !it.isClosed }
+                        ?.close()
+                    activeClients[selected] = socket
+                }
+                selected
+            }
+            if (peerId == null) {
+                val error = if (automaticSlot) "ROOM_FULL" else "PEER_NOT_ALLOWED"
+                WireCodec.write(socket.getOutputStream(), WireMessage.Error(error))
                 return
             }
             authenticatedPeerId = peerId
 
-            synchronized(sessionLock) {
-                activeClients[peerId]
-                    ?.takeIf { it !== socket && !it.isClosed }
-                    ?.close()
-                activeClients[peerId] = socket
-            }
-
             val plan = synchronized(hostReplica) { hostReplica.planReconnect(hello) }
-            WireCodec.write(socket.getOutputStream(), WireMessage.Sync(plan))
+            val handshakeResponse = if (automaticSlot) {
+                WireMessage.Welcome(peerId, plan)
+            } else {
+                WireMessage.Sync(plan)
+            }
+            WireCodec.write(socket.getOutputStream(), handshakeResponse)
 
             // The timeout protects only unauthenticated handshakes. An authenticated LAN session
             // may legitimately remain idle while players explore menus, read dialogue or plan moves.
