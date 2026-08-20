@@ -31,6 +31,7 @@ object ExplorationCombatEngineTest {
                 assertTrue(enemy.rewardBerries > 0)
                 assertTrue(enemy.rewardItemId.isNotBlank())
                 assertTrue(enemy.rewardItemAmount > 0)
+                assertTrue(enemy.respawnSteps > 0)
             }
         }
 
@@ -54,6 +55,8 @@ object ExplorationCombatEngineTest {
                 assertTrue(high.rewardBerries > low.rewardBerries)
                 assertTrue(low.rewardItemId.isNotBlank())
                 assertTrue(high.rewardItemId.isNotBlank())
+                assertTrue(low.respawnSteps > 0)
+                assertTrue(high.respawnSteps >= low.respawnSteps)
             }
 
             val bruiser = ExplorationEnemyCatalog.profile(ExplorationEnemyArchetype.BRUISER, danger = 5)
@@ -115,7 +118,7 @@ object ExplorationCombatEngineTest {
             assertEquals(afterP2, InventoryEngine.read(revisited, "p2").items[enemy.rewardItemId])
         }
 
-        test("free roam victory removes only that encounter rewards party once and prevents its respawn") {
+        test("free roam victory removes only that encounter rewards party once during cooldown") {
             var world = world("free-roam-victory")
             val map = ExplorationEngine.mapFor(world.campaignId, world.islandId)
             val enemy = map.enemies.values.sortedBy { it.id }.first()
@@ -136,11 +139,85 @@ object ExplorationCombatEngineTest {
             assertEquals(null, completed.activeCombat)
             assertTrue(ExplorationCombatEngine.isDefeated(completed, enemy.id))
             otherIds.forEach { assertTrue(!ExplorationCombatEngine.isDefeated(completed, it)) }
+            assertEquals(enemy.respawnSteps, ExplorationCombatEngine.stepsUntilRespawn(completed, enemy.id))
             assertEquals(berriesBefore + enemy.rewardBerries, completed.partyBerries)
             val revisited = ExplorationCombatEngine.startIfEncountered(completed, "p1")
             assertEquals(null, revisited.activeCombat)
             assertEquals(completed.partyBerries, revisited.partyBerries)
         }
+
+        test("new victories respawn after enough successful exploration steps and can reward a later kill") {
+            var world = world("free-roam-respawn")
+            val map = ExplorationEngine.mapFor(world.campaignId, world.islandId)
+            val enemy = map.enemies.values.sortedBy { it.id }.first()
+            world = ExplorationEngine.place(world, "p1", enemy.position)
+            world = ExplorationCombatEngine.startIfEncountered(world, "p1")
+            val firstCombat = world.activeCombat!!
+            world = ExplorationCombatEngine.completeVictory(
+                world.copy(
+                    activeCombat = firstCombat.copy(
+                        enemy = firstCombat.enemy.copy(hp = 0),
+                        status = CombatStatus.VICTORY,
+                    )
+                )
+            )
+            val berriesAfterFirstKill = world.partyBerries
+
+            assertEquals(0L, ExplorationEngine.explorationSteps(world))
+            assertTrue(ExplorationCombatEngine.isDefeated(world, enemy.id))
+            assertEquals(enemy.respawnSteps, ExplorationCombatEngine.stepsUntilRespawn(world, enemy.id))
+
+            world = ExplorationEngine.place(world, "p1", map.spawn)
+            world = walkSuccessfulSteps(world, enemy.respawnSteps - 1)
+            assertTrue(ExplorationCombatEngine.isDefeated(world, enemy.id))
+            assertEquals(1, ExplorationCombatEngine.stepsUntilRespawn(world, enemy.id))
+
+            world = walkSuccessfulSteps(world, 1)
+            assertTrue(!ExplorationCombatEngine.isDefeated(world, enemy.id))
+            assertEquals(0, ExplorationCombatEngine.stepsUntilRespawn(world, enemy.id))
+            assertEquals(enemy.respawnSteps.toLong(), ExplorationEngine.explorationSteps(world))
+
+            world = ExplorationEngine.place(world, "p1", enemy.position)
+            world = ExplorationCombatEngine.startIfEncountered(world, "p1")
+            val secondCombat = world.activeCombat!!
+            assertEquals(enemy.id, secondCombat.enemy.id)
+            world = ExplorationCombatEngine.completeVictory(
+                world.copy(
+                    activeCombat = secondCombat.copy(
+                        enemy = secondCombat.enemy.copy(hp = 0),
+                        status = CombatStatus.VICTORY,
+                    )
+                )
+            )
+
+            assertEquals(berriesAfterFirstKill + enemy.rewardBerries, world.partyBerries)
+            assertTrue(ExplorationCombatEngine.isDefeated(world, enemy.id))
+            assertEquals(enemy.respawnSteps, ExplorationCombatEngine.stepsUntilRespawn(world, enemy.id))
+        }
+
+        test("legacy defeated encounter without respawn metadata stays permanently defeated") {
+            val base = world("free-roam-legacy-defeat")
+            val enemy = ExplorationEngine.mapFor(base.campaignId, base.islandId).enemies.values.sortedBy { it.id }.first()
+            var world = base.copy(
+                worldFlags = base.worldFlags + ("explore.${base.islandId}.enemy.${enemy.id}.defeated" to "true"),
+            )
+            world = ExplorationEngine.place(world, "p1", ExplorationEngine.mapFor(world.campaignId, world.islandId).spawn)
+            world = walkSuccessfulSteps(world, enemy.respawnSteps * 3)
+            world = ExplorationEngine.place(world, "p1", enemy.position)
+
+            assertTrue(ExplorationCombatEngine.isDefeated(world, enemy.id))
+            assertEquals(Int.MAX_VALUE, ExplorationCombatEngine.stepsUntilRespawn(world, enemy.id))
+            assertEquals(null, ExplorationCombatEngine.startIfEncountered(world, "p1").activeCombat)
+        }
+    }
+
+    private fun walkSuccessfulSteps(initial: WorldState, steps: Int): WorldState {
+        var world = initial
+        repeat(steps) { index ->
+            val direction = if (index % 2 == 0) ExplorationDirection.EAST else ExplorationDirection.WEST
+            world = ExplorationEngine.move(world, "p1", direction)
+        }
+        return world
     }
 
     private fun world(id: String) = WorldState(
