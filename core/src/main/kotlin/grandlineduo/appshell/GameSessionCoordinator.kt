@@ -121,8 +121,15 @@ class GameSessionCoordinator(private val saveRoot: Path? = null) : Closeable {
 
     @Synchronized
     fun refresh(): WorldState {
-        if (mode == SessionMode.CLIENT_COOP) clientConnection?.refresh()
-        else if (mode == SessionMode.SOLO || mode == SessionMode.HOST_COOP) postProcessHostState()
+        when (mode) {
+            SessionMode.CLIENT_COOP -> clientConnection?.refresh()
+            SessionMode.SOLO -> {
+                autoPlayCompanion()
+                postProcessHostState()
+            }
+            SessionMode.HOST_COOP -> postProcessHostState()
+            SessionMode.NONE -> Unit
+        }
         return worldState()
     }
 
