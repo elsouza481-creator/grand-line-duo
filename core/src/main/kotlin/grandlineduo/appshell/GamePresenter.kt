@@ -41,6 +41,7 @@ data class GameAction(val id: String, val label: String, val kind: String)
 data class ExplorationPresentation(
     val map: ExplorationMap,
     val playerPosition: GridPosition,
+    val playerPositions: Map<String, GridPosition> = emptyMap(),
     val interaction: ExplorationInteraction?,
     val visibleQuestObjectives: Set<GridPosition> = emptySet(),
     val visiblePickups: Set<GridPosition> = emptySet(),
@@ -59,7 +60,7 @@ data class GamePresentation(
 
 object GamePresenter {
     fun present(world: WorldState, actorId: String): GamePresentation {
-        require(actorId == "p1" || actorId == "p2") { "Unknown actor" }
+        require(actorId in HUMAN_PLAYER_IDS) { "Unknown actor" }
         val actor = world.players[actorId] ?: return GamePresentation(
             GameScreen.CHARACTER_CREATION, "Criar personagem", "Prepare seu personagem para iniciar a aventura."
         )
@@ -366,6 +367,7 @@ object GamePresenter {
             exploration = ExplorationPresentation(
                 map = map,
                 playerPosition = playerPosition,
+                playerPositions = world.players.keys.sorted().associateWith { ExplorationEngine.position(world, it) },
                 interaction = interaction,
                 visibleQuestObjectives = activeQuestObjectives,
                 visiblePickups = visiblePickups,
@@ -379,7 +381,14 @@ object GamePresenter {
         val p = world.players[actorId]
         val ship = world.shipState
         val island = GrandLineWorldAtlas.describe(world.campaignId, world.islandId)
+        val roster = world.players.values.filter { it.profile != null }.sortedBy { it.playerId }
         return buildList {
+            if (roster.isNotEmpty()) {
+                add("Tripulação ${roster.size}/4")
+                roster.chunked(2).forEach { group ->
+                    add(group.joinToString(" • ") { "${it.playerId.uppercase()} ${it.name}" })
+                }
+            }
             if (p != null) {
                 add("PV ${p.hp}/${p.maxHp} • PE ${p.energy}/${p.maxEnergy}")
                 p.profile?.classMastery?.let { add(ClassPathDisplay.primaryProgress(it)) }
@@ -415,6 +424,8 @@ object GamePresenter {
         CombatActionType.HAKI_HAOSHOKU -> "Haoshoku"
         CombatActionType.DEVIL_FRUIT -> "Akuma no Mi"
     }
+
+    private val HUMAN_PLAYER_IDS = setOf("p1", "p2", "p3", "p4")
 
     private val BASIC_COMBAT_ACTIONS = listOf(
         CombatActionType.ATTACK,
