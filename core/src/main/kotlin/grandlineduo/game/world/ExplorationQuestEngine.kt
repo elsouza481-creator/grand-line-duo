@@ -21,7 +21,8 @@ object ExplorationQuestEngine {
     fun status(world: WorldState, playerId: String, questId: String): ExplorationQuestStatus {
         require(playerId in world.players) { "Unknown player $playerId" }
         requireQuest(world, questId)
-        val stored = world.worldFlags[statusKey(world, playerId, questId)] ?: return ExplorationQuestStatus.AVAILABLE.name
+        val stored = world.worldFlags[statusKey(world, playerId, questId)]
+            ?: return ExplorationQuestStatus.AVAILABLE
         return try {
             ExplorationQuestStatus.valueOf(stored)
         } catch (_: IllegalArgumentException) {
