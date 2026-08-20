@@ -58,6 +58,10 @@ object ExplorationEnemyCatalog {
         }
     }
 
+    /**
+     * Original primary selector. Kept byte-for-byte compatible with the single-enemy map so the
+     * existing east encounter keeps the same archetype/reward for saves created before multi-mob maps.
+     */
     fun select(campaignId: String, islandId: String): ExplorationEnemyArchetype {
         require(campaignId.isNotBlank()) { "Campaign id is required" }
         require(islandId.isNotBlank()) { "Island id is required" }
@@ -68,5 +72,20 @@ object ExplorationEnemyCatalog {
         }
         val mixed = (hash xor (hash ushr 32)).toInt() and Int.MAX_VALUE
         return ExplorationEnemyArchetype.entries[mixed % ExplorationEnemyArchetype.entries.size]
+    }
+
+    /**
+     * Multi-encounter selector. East is the legacy primary; west and north rotate from that base,
+     * guaranteeing three distinct roles while remaining deterministic for every campaign/island.
+     */
+    fun select(campaignId: String, islandId: String, slotId: String): ExplorationEnemyArchetype {
+        val offset = when (slotId.lowercase()) {
+            "east" -> 0
+            "west" -> 1
+            "north" -> 2
+            else -> throw IllegalArgumentException("Unknown exploration enemy slot $slotId")
+        }
+        val base = select(campaignId, islandId)
+        return ExplorationEnemyArchetype.entries[(base.ordinal + offset) % ExplorationEnemyArchetype.entries.size]
     }
 }
