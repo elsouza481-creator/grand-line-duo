@@ -11,8 +11,8 @@ import grandlineduo.game.combat.EnemyTelegraph
 
 /**
  * Exploration-only combat lifecycle. Combat rules themselves remain in CombatEngine.
- * Encounter identity and respawn cadence are stored in world flags so the existing
- * snapshot/hash/LAN stack persists them without a new wire or snapshot schema.
+ * Encounter identity, respawn cadence and first-clear rewards are stored in world flags so the
+ * existing snapshot/hash/LAN stack persists them without a new wire or snapshot schema.
  */
 object ExplorationCombatEngine {
     fun isDefeated(world: WorldState, enemyId: String): Boolean {
@@ -101,20 +101,31 @@ object ExplorationCombatEngine {
             return world.copy(players = syncedPlayers, activeCombat = null, worldFlags = clearedFlags)
         }
 
+        val defeatedBefore = world.worldFlags[defeatedKey(world.islandId, enemy.id)] == "true"
+        val firstClearAlreadyClaimed = world.worldFlags[firstClearKey(world.islandId, enemy.id)] == "true"
+        val firstFieldBossClear = enemy.rank == ExplorationEnemyRank.FIELD_BOSS &&
+            !defeatedBefore &&
+            !firstClearAlreadyClaimed
+        val rewardMultiplier = if (firstFieldBossClear) 2L else 1L
+
         val currentSteps = ExplorationEngine.explorationSteps(world)
         val respawnAt = if (currentSteps > Long.MAX_VALUE - enemy.respawnSteps.toLong()) {
             Long.MAX_VALUE
         } else {
             currentSteps + enemy.respawnSteps.toLong()
         }
+        val rewardFlags = mutableMapOf(
+            defeatedKey(world.islandId, enemy.id) to "true",
+            respawnAtKey(world.islandId, enemy.id) to respawnAt.toString(),
+        )
+        if (enemy.rank == ExplorationEnemyRank.FIELD_BOSS) {
+            rewardFlags[firstClearKey(world.islandId, enemy.id)] = "true"
+        }
         var rewarded = world.copy(
             players = syncedPlayers,
             activeCombat = null,
-            partyBerries = world.partyBerries + enemy.rewardBerries,
-            worldFlags = clearedFlags + mapOf(
-                defeatedKey(world.islandId, enemy.id) to "true",
-                respawnAtKey(world.islandId, enemy.id) to respawnAt.toString(),
-            ),
+            partyBerries = world.partyBerries + enemy.rewardBerries * rewardMultiplier,
+            worldFlags = clearedFlags + rewardFlags,
         )
         combat.players.values
             .filter { it.hp > 0 && it.id in rewarded.players }
@@ -128,7 +139,7 @@ object ExplorationCombatEngine {
                     val progressed = ClassMasteryEngine.train(
                         mastery,
                         primary,
-                        enemy.rewardMasteryExperience.toLong(),
+                        enemy.rewardMasteryExperience.toLong() * rewardMultiplier,
                     )
                     rewarded = rewarded.copy(
                         players = rewarded.players + (
@@ -153,6 +164,9 @@ object ExplorationCombatEngine {
 
     private fun respawnAtKey(islandId: String, enemyId: String): String =
         "explore.$islandId.enemy.$enemyId.respawnAtStep"
+
+    private fun firstClearKey(islandId: String, enemyId: String): String =
+        "explore.$islandId.enemy.$enemyId.firstClear"
 
     private fun combatSeed(campaignId: String, islandId: String, enemyId: String): Long {
         var hash = 0xCBF29CE484222325UL.toLong()
