@@ -192,15 +192,9 @@ object GamePresenter {
             ?.let { ExplorationQuestEngine.bossHuntQuestId(world.islandId) }
             ?.takeIf { id -> map.npcs.values.any { it.questId == id } }
         val bossHuntStatus = bossHuntQuestId?.let { ExplorationQuestEngine.status(world, actorId, it) }
-        val trackedBossHuntTarget = if (
-            bossHuntStatus == ExplorationQuestStatus.ACTIVE &&
-            fieldBoss != null &&
-            !ExplorationCombatEngine.isDefeated(world, fieldBoss.id)
-        ) {
-            fieldBoss.position
-        } else {
-            null
-        }
+        val trackedBossHuntTarget = fieldBoss?.takeIf { boss ->
+            bossHuntStatus == ExplorationQuestStatus.ACTIVE && !ExplorationCombatEngine.isDefeated(world, boss.id)
+        }?.position
         val bossHuntIntel = when (bossHuntStatus) {
             ExplorationQuestStatus.ACTIVE ->
                 "CAÇADA ATIVA • ${fieldBoss?.name ?: "Chefe de campo"} • derrote o field boss e volte a Rook."
@@ -232,6 +226,7 @@ object GamePresenter {
                 add(GameAction(direction.name, explorationLabel(direction), "EXPLORE_MOVE"))
             }
             add(GameAction("INVENTORY", "Inventário e equipamento", "MENU"))
+            add(GameAction("QUESTS", "Diário de missões", "MENU"))
 
             if (npc?.questId != null) {
                 when (ExplorationQuestEngine.status(world, actorId, npc.questId)) {
