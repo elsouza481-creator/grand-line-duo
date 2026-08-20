@@ -57,6 +57,15 @@ data class ExplorationPickup(
     val berries: Long,
 )
 
+data class ExplorationEnemy(
+    val id: String,
+    val name: String,
+    val position: GridPosition,
+    val maxHp: Int,
+    val attackPower: Int,
+    val rewardBerries: Long,
+)
+
 data class ExplorationMap(
     val width: Int,
     val height: Int,
@@ -66,6 +75,7 @@ data class ExplorationMap(
     val npcs: Map<GridPosition, ExplorationNpc> = emptyMap(),
     val questObjectives: Map<GridPosition, ExplorationQuestObjective> = emptyMap(),
     val pickups: Map<GridPosition, ExplorationPickup> = emptyMap(),
+    val enemies: Map<GridPosition, ExplorationEnemy> = emptyMap(),
 ) {
     fun tileAt(position: GridPosition): ExplorationTile = tiles[position] ?: ExplorationTile.WATER
     fun isWalkable(position: GridPosition): Boolean = tileAt(position).walkable
@@ -80,6 +90,12 @@ object ExplorationEngine {
     private const val HEIGHT = 18
     private val SPAWN = GridPosition(WIDTH / 2, HEIGHT / 2)
     private val QUEST_GIVER_NAMES = listOf("Iria", "Bram", "Noa", "Tess", "Kellan", "Suri")
+    private val HOSTILE_NAMES = listOf(
+        "Bando do Quebra-Mar",
+        "Caçadores da Maré",
+        "Saqueadores do Cais",
+        "Rufiões da Rota",
+    )
 
     fun mapFor(campaignId: String, islandId: String): ExplorationMap {
         require(campaignId.isNotBlank()) { "Campaign id is required" }
@@ -158,6 +174,21 @@ object ExplorationEngine {
             berries = 350L,
         )
 
+        // One free-roam hostile sits farther east on the guaranteed road, outside the quest objective.
+        // Its combat stats come only from deterministic island danger; clients never supply them.
+        val danger = GrandLineWorldAtlas.describe(campaignId, islandId).danger.coerceIn(1, 10)
+        val enemyPosition = GridPosition(SPAWN.x + 7, SPAWN.y)
+        tiles[enemyPosition] = ExplorationTile.ROAD
+        val enemyName = HOSTILE_NAMES[((mapSeed xor (mapSeed ushr 29)).toInt() and Int.MAX_VALUE) % HOSTILE_NAMES.size]
+        val enemy = ExplorationEnemy(
+            id = "road-hostile-$islandId",
+            name = enemyName,
+            position = enemyPosition,
+            maxHp = 30 + danger * 8,
+            attackPower = 5 + danger * 2,
+            rewardBerries = 300L + danger * 125L,
+        )
+
         return ExplorationMap(
             width = WIDTH,
             height = HEIGHT,
@@ -167,6 +198,7 @@ object ExplorationEngine {
             npcs = mapOf(questGiver.position to questGiver),
             questObjectives = mapOf(objective.position to objective),
             pickups = mapOf(pickup.position to pickup),
+            enemies = mapOf(enemy.position to enemy),
         )
     }
 
@@ -222,6 +254,11 @@ object ExplorationEngine {
     fun pickupAt(world: WorldState, playerId: String): ExplorationPickup? {
         val map = mapFor(world.campaignId, world.islandId)
         return map.pickups[position(world, playerId)]
+    }
+
+    fun enemyAt(world: WorldState, playerId: String): ExplorationEnemy? {
+        val map = mapFor(world.campaignId, world.islandId)
+        return map.enemies[position(world, playerId)]
     }
 
     private fun positionKey(islandId: String, playerId: String, axis: String) =
