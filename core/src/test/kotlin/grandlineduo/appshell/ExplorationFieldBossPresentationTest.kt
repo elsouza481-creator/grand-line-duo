@@ -10,7 +10,7 @@ import java.nio.file.Files
 
 object ExplorationFieldBossPresentationTest {
     fun register() {
-        test("presenter exposes active field boss risk reward and respawn intel") {
+        test("presenter exposes active field boss risk reward respawn and first-clear intel") {
             val root = Files.createTempDirectory("gld-field-boss-present")
             GameSessionCoordinator(root).use { session ->
                 session.startSolo("field-boss-present")
@@ -34,10 +34,12 @@ object ExplorationFieldBossPresentationTest {
                 assertTrue("${boss.rewardBerries} berries" in body)
                 assertTrue("${boss.rewardMasteryExperience} xp" in body)
                 assertTrue("${boss.respawnSteps} passos" in body)
+                assertTrue("primeira vitória 2x" in body)
+                assertTrue("berries + xp" in body)
             }
         }
 
-        test("presenter keeps field boss cooldown visible after victory without hostile marker") {
+        test("presenter keeps field boss cooldown visible after victory without hostile marker or first-clear offer") {
             val root = Files.createTempDirectory("gld-field-boss-cooldown-present")
             GameSessionCoordinator(root).use { session ->
                 session.startSolo("field-boss-cooldown-present")
@@ -68,6 +70,7 @@ object ExplorationFieldBossPresentationTest {
                 assertTrue(boss.position !in requireNotNull(view.exploration).visibleEnemies)
                 assertTrue("chefe de campo" in body)
                 assertTrue("reaparece em $remaining passos" in body)
+                assertTrue("primeira vitória 2x" !in body)
             }
         }
     }
