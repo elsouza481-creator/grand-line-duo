@@ -1,0 +1,76 @@
+name: Materialize GRAND LINE DUO source
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - ".github/workflows/materialize-grand-line-source.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  materialize:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Restore source tree from verified payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import base64, hashlib, io, re, zipfile
+
+          workflow = Path('.github/workflows/grand-line-duo-1.0.0-build.yml')
+          text = workflow.read_text(encoding='utf-8')
+          match = re.search(
+              r"cat > /tmp/grand-line-duo-1\.0\.0\.zip\.b64 <<'PAYLOAD'\n(.*?)\n\s*PAYLOAD",
+              text,
+              re.S,
+          )
+          if not match:
+              raise SystemExit('GRAND LINE DUO payload not found')
+
+          payload = ''.join(line.strip() for line in match.group(1).splitlines())
+          archive = base64.b64decode(payload, validate=True)
+          expected = '05937fdc8bbaeb9c226f1fc3a4ffee7b2c7b43488a62e8beb0a9a7d9f976b0f2'
+          actual = hashlib.sha256(archive).hexdigest()
+          if actual != expected:
+              raise SystemExit(f'Source SHA-256 mismatch: {actual}')
+
+          with zipfile.ZipFile(io.BytesIO(archive)) as zf:
+              for member in zf.infolist():
+                  target = Path(member.filename)
+                  if target.is_absolute() or '..' in target.parts:
+                      raise SystemExit(f'Unsafe archive path: {member.filename}')
+              zf.extractall('.')
+
+          required = [
+              Path('settings.gradle.kts'),
+              Path('app/build.gradle.kts'),
+              Path('tools/run-core-tests.sh'),
+          ]
+          missing = [str(path) for path in required if not path.exists()]
+          if missing:
+              raise SystemExit('Missing restored files: ' + ', '.join(missing))
+
+          print('Materialized source SHA-256:', actual)
+          PY
+
+      - name: Commit materialized source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add settings.gradle.kts gradle.properties .gitignore ANDROID_BUILD.md SOURCE_SNAPSHOT.md app tools || true
+          if git diff --cached --quiet; then
+            echo "Source tree already materialized"
+            exit 0
+          fi
+          git commit -m "chore: materialize GRAND LINE DUO source tree"
+          git push origin HEAD:main
