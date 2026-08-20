@@ -196,8 +196,10 @@ object ExplorationEngine {
         }
 
         if (danger >= 6) {
-            val position = GridPosition(SPAWN.x, SPAWN.y + 6)
-            tiles[position] = ExplorationTile.ROAD
+            // Optional elite branch: connected to the main north/south road but never placed on
+            // the mandatory spawn-to-dock corridor. Players choose whether to pursue the field boss.
+            val position = GridPosition(SPAWN.x + 7, SPAWN.y + 5)
+            for (x in SPAWN.x..position.x) tiles[GridPosition(x, position.y)] = ExplorationTile.ROAD
             val profile = ExplorationEnemyCatalog.fieldBossProfile(danger)
             enemies[position] = ExplorationEnemy(
                 id = "field-boss-$islandId",
