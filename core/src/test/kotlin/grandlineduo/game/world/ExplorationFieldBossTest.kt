@@ -13,7 +13,7 @@ object ExplorationFieldBossTest {
             assertTrue(map.enemies.values.all { it.rank == ExplorationEnemyRank.COMMON })
         }
 
-        test("danger six or higher adds one deterministic physical field boss") {
+        test("danger six or higher adds one deterministic optional physical field boss") {
             val a = ExplorationEngine.mapFor("field-boss-high", "meridian-vault")
             val b = ExplorationEngine.mapFor("field-boss-high", "meridian-vault")
 
@@ -21,6 +21,7 @@ object ExplorationFieldBossTest {
             assertEquals(4, a.enemies.size)
             val boss = a.enemies.values.single { it.rank == ExplorationEnemyRank.FIELD_BOSS }
             val commons = a.enemies.values.filter { it.rank == ExplorationEnemyRank.COMMON }
+            val dock = a.interactions.entries.first { it.value == ExplorationInteraction.DOCK }.key
 
             assertEquals(3, commons.size)
             assertTrue(a.isWalkable(boss.position))
@@ -29,6 +30,12 @@ object ExplorationFieldBossTest {
             assertTrue(boss.position !in a.npcs)
             assertTrue(boss.position !in a.questObjectives)
             assertTrue(boss.position !in a.pickups)
+            assertTrue(boss.position.x != dock.x, "Field boss must not block the mandatory spawn-to-dock corridor")
+            val branchStartX = minOf(a.spawn.x, boss.position.x)
+            val branchEndX = maxOf(a.spawn.x, boss.position.x)
+            for (x in branchStartX..branchEndX) {
+                assertTrue(a.isWalkable(GridPosition(x, boss.position.y)), "Field boss side branch must remain reachable")
+            }
             assertTrue(boss.maxHp > commons.maxOf { it.maxHp })
             assertTrue(boss.attackPower > commons.maxOf { it.attackPower })
             assertTrue(boss.rewardBerries > commons.maxOf { it.rewardBerries })
