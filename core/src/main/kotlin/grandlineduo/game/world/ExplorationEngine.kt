@@ -65,6 +65,8 @@ data class ExplorationEnemy(
     val maxHp: Int,
     val attackPower: Int,
     val rewardBerries: Long,
+    val rewardItemId: String,
+    val rewardItemAmount: Int,
 )
 
 data class ExplorationMap(
@@ -116,7 +118,6 @@ object ExplorationEngine {
             }
         }
 
-        // Guaranteed connected town cross and central plaza.
         for (x in 1 until WIDTH - 1) tiles[GridPosition(x, SPAWN.y)] = ExplorationTile.ROAD
         for (y in 1 until HEIGHT - 1) tiles[GridPosition(SPAWN.x, y)] = ExplorationTile.ROAD
         for (y in SPAWN.y - 2..SPAWN.y + 2) {
@@ -134,8 +135,6 @@ object ExplorationEngine {
         tiles[SPAWN] = ExplorationTile.ROAD
         tiles[SPAWN + ExplorationDirection.EAST] = ExplorationTile.ROAD
 
-        // A guaranteed horizontal quest route gives every generated island a small physical activity.
-        // The NPC and objective remain on the town road so pathing never depends on random obstacles.
         val questGiverPosition = GridPosition(SPAWN.x - 4, SPAWN.y)
         val questObjectivePosition = GridPosition(SPAWN.x + 5, SPAWN.y)
         tiles[questGiverPosition] = ExplorationTile.ROAD
@@ -156,8 +155,6 @@ object ExplorationEngine {
             label = "Caixa perdida de $npcName",
         )
 
-        // A separate shared cache rewards free exploration. It sits on the guaranteed north road,
-        // away from services, spawn, NPC and quest objective, so either human can reach it safely.
         val pickupPosition = GridPosition(SPAWN.x, SPAWN.y - 4)
         tiles[pickupPosition] = ExplorationTile.ROAD
         val pickup = ExplorationPickup(
@@ -169,8 +166,6 @@ object ExplorationEngine {
             berries = 350L,
         )
 
-        // One free-roam hostile sits farther east on the guaranteed road, outside the quest objective.
-        // Its archetype is deterministic for this campaign/island and every profile scales from island danger.
         val danger = GrandLineWorldAtlas.describe(campaignId, islandId).danger.coerceIn(1, 10)
         val enemyPosition = GridPosition(SPAWN.x + 7, SPAWN.y)
         tiles[enemyPosition] = ExplorationTile.ROAD
@@ -184,6 +179,8 @@ object ExplorationEngine {
             maxHp = profile.maxHp,
             attackPower = profile.attackPower,
             rewardBerries = profile.rewardBerries,
+            rewardItemId = profile.rewardItemId,
+            rewardItemAmount = profile.rewardItemAmount,
         )
 
         return ExplorationMap(
