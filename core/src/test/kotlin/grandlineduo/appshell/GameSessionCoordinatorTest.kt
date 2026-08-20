@@ -75,6 +75,39 @@ object GameSessionCoordinatorTest {
             }
         }
 
+        test("P3 and P4 create authoritative characters over assigned LAN slots and all replicas converge") {
+            val host = GameSessionCoordinator()
+            val p2 = GameSessionCoordinator()
+            val p3 = GameSessionCoordinator()
+            val p4 = GameSessionCoordinator()
+            try {
+                host.startHost("Character Host", campaignId = "coord-four-characters")
+                joinViaDiscovery(host, p2, freeUdpPort())
+                joinViaDiscovery(host, p3, freeUdpPort())
+                joinViaDiscovery(host, p4, freeUdpPort())
+
+                p3.createCharacter(validDraft("Rika"))
+                p4.createCharacter(validDraft("Bram"))
+                p2.refresh()
+                p3.refresh()
+                p4.refresh()
+
+                val authoritative = host.worldState()
+                assertEquals("Rika", authoritative.players.getValue("p3").name)
+                assertEquals("Bram", authoritative.players.getValue("p4").name)
+                assertTrue(authoritative.players.getValue("p3").profile != null)
+                assertTrue(authoritative.players.getValue("p4").profile != null)
+                assertEquals(authoritative, p2.worldState())
+                assertEquals(authoritative, p3.worldState())
+                assertEquals(authoritative, p4.worldState())
+            } finally {
+                p4.close()
+                p3.close()
+                p2.close()
+                host.close()
+            }
+        }
+
         test("session coordinator exposes authoritative world management actions") {
             val root = Files.createTempDirectory("gld-world-action")
             GameSessionCoordinator(root).use { session ->
