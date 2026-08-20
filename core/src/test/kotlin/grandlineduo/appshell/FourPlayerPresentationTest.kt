@@ -4,6 +4,7 @@ import grandlineduo.core.model.PlayerState
 import grandlineduo.core.model.WorldState
 import grandlineduo.game.character.CharacterCreation
 import grandlineduo.game.character.CharacterCreationResult
+import grandlineduo.game.character.CharacterProfile
 import grandlineduo.game.world.ExplorationDirection
 import grandlineduo.game.world.ExplorationEngine
 import grandlineduo.game.world.GridPosition
@@ -14,30 +15,11 @@ import grandlineduo.test.test
 object FourPlayerPresentationTest {
     fun register() {
         test("P3 hub presents all four party members and their independent map positions") {
-            val profiles = (1..4).associate { index ->
-                val id = "p$index"
-                val profile = (
-                    CharacterCreation.create(
-                        GameSessionCoordinatorTest.validDraft("Player $index")
-                    ) as CharacterCreationResult.Success
-                ).profile
-                id to profile
-            }
+            val profiles = profiles(4)
             var world = WorldState(
                 campaignId = "present-four-player",
                 islandId = "stormglass-cay",
-                players = profiles.mapValues { (id, profile) ->
-                    PlayerState(
-                        playerId = id,
-                        name = profile.name,
-                        hp = profile.maxHp,
-                        maxHp = profile.maxHp,
-                        bounty = 0,
-                        energy = profile.maxEnergy,
-                        maxEnergy = profile.maxEnergy,
-                        profile = profile,
-                    )
-                },
+                players = players(profiles),
                 worldFlags = mapOf("sg.stage" to "COMPLETE"),
             )
             val map = ExplorationEngine.mapFor(world.campaignId, world.islandId)
@@ -60,5 +42,46 @@ object FourPlayerPresentationTest {
             assertTrue(presentation.status.any { it.contains("P1 Player 1") && it.contains("P2 Player 2") })
             assertTrue(presentation.status.any { it.contains("P3 Player 3") && it.contains("P4 Player 4") })
         }
+
+        test("P3 and P4 observe legacy two-player narrative instead of receiving invalid choices") {
+            val profiles = profiles(4)
+            val world = WorldState(
+                campaignId = "present-four-observer",
+                islandId = "stormglass-cay",
+                players = players(profiles),
+            )
+
+            listOf("p3", "p4").forEach { actorId ->
+                val presentation = GamePresenter.present(world, actorId)
+                assertEquals(GameScreen.WAITING_FOR_PARTNER, presentation.screen)
+                assertEquals(emptyList<GameAction>(), presentation.actions)
+                assertTrue(presentation.title.contains("Observando"))
+                assertTrue(presentation.body.contains("P1") && presentation.body.contains("P2"))
+            }
+        }
     }
+
+    private fun profiles(count: Int): Map<String, CharacterProfile> = (1..count).associate { index ->
+        val id = "p$index"
+        val profile = (
+            CharacterCreation.create(
+                GameSessionCoordinatorTest.validDraft("Player $index")
+            ) as CharacterCreationResult.Success
+        ).profile
+        id to profile
+    }
+
+    private fun players(profiles: Map<String, CharacterProfile>): Map<String, PlayerState> =
+        profiles.mapValues { (id, profile) ->
+            PlayerState(
+                playerId = id,
+                name = profile.name,
+                hp = profile.maxHp,
+                maxHp = profile.maxHp,
+                bounty = 0,
+                energy = profile.maxEnergy,
+                maxEnergy = profile.maxEnergy,
+                profile = profile,
+            )
+        }
 }
