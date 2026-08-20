@@ -23,6 +23,20 @@ object ExplorationFieldBossTest {
             assertTrue(map.enemies.values.all { it.rank == ExplorationEnemyRank.COMMON })
         }
 
+        test("field boss difficulty escalates from hard to nightmare to legendary with island danger") {
+            val hard = ExplorationEnemyCatalog.fieldBossProfile(6)
+            val nightmare = ExplorationEnemyCatalog.fieldBossProfile(8)
+            val legendary = ExplorationEnemyCatalog.fieldBossProfile(10)
+
+            assertEquals(ExplorationBossDifficulty.HARD, hard.difficulty)
+            assertEquals(ExplorationBossDifficulty.NIGHTMARE, nightmare.difficulty)
+            assertEquals(ExplorationBossDifficulty.LEGENDARY, legendary.difficulty)
+            assertTrue(hard.maxHp < nightmare.maxHp && nightmare.maxHp < legendary.maxHp)
+            assertTrue(hard.attackPower < nightmare.attackPower && nightmare.attackPower < legendary.attackPower)
+            assertTrue(hard.rewardBerries < nightmare.rewardBerries && nightmare.rewardBerries < legendary.rewardBerries)
+            assertTrue(hard.rewardMasteryExperience < nightmare.rewardMasteryExperience && nightmare.rewardMasteryExperience < legendary.rewardMasteryExperience)
+        }
+
         test("danger six or higher adds one deterministic optional physical field boss") {
             val a = ExplorationEngine.mapFor("field-boss-high", "meridian-vault")
             val b = ExplorationEngine.mapFor("field-boss-high", "meridian-vault")
