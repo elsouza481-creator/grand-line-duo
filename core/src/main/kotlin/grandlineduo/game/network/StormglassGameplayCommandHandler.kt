@@ -429,9 +429,16 @@ class StormglassGameplayCommandHandler(
         )
 
         val nextWorld = if (poweredWorld.activeCombat != null) {
-            val arc = poweredWorld.activeArc ?: throw IllegalArgumentException("Active boss combat has no arc")
+            val explorationCombat = ExplorationCombatEngine.isActive(poweredWorld)
+            val arc = if (explorationCombat) null else poweredWorld.activeArc
+                ?: throw IllegalArgumentException("Active boss combat has no arc")
             val current = poweredWorld.activeCombat
-            val engine = CombatEngine(ArcBossFactory.combatSeed(arc), CombatModifierResolver.forWorld(poweredWorld))
+            val combatSeed = if (explorationCombat) {
+                ExplorationCombatEngine.combatSeed(poweredWorld)
+            } else {
+                ArcBossFactory.combatSeed(requireNotNull(arc))
+            }
+            val engine = CombatEngine(combatSeed, CombatModifierResolver.forWorld(poweredWorld))
             val locked = try {
                 engine.lockAction(current, CombatAction(command.actorId, prepared.combatAction))
             } catch (e: CombatRuleException) {
@@ -451,16 +458,30 @@ class StormglassGameplayCommandHandler(
                     resolved.state.players[id]?.let { fighter -> player.copy(hp = fighter.hp, maxHp = fighter.maxHp) } ?: player
                 }
                 when (resolved.state.status) {
-                    CombatStatus.VICTORY -> poweredWorld.copy(
-                        players = players,
-                        activeCombat = null,
-                        worldFlags = poweredWorld.worldFlags + ("ARC_BOSS_DEFEATED:${arc.arcId}" to "true"),
-                    )
-                    CombatStatus.DEFEAT -> poweredWorld.copy(
-                        players = players,
-                        activeCombat = resolved.state,
-                        worldFlags = poweredWorld.worldFlags + ("ARC_PARTY_DEFEATED:${arc.arcId}" to "true"),
-                    )
+                    CombatStatus.VICTORY -> {
+                        if (explorationCombat) {
+                            ExplorationCombatEngine.completeVictory(
+                                poweredWorld.copy(players = players, activeCombat = resolved.state)
+                            )
+                        } else {
+                            poweredWorld.copy(
+                                players = players,
+                                activeCombat = null,
+                                worldFlags = poweredWorld.worldFlags + ("ARC_BOSS_DEFEATED:${requireNotNull(arc).arcId}" to "true"),
+                            )
+                        }
+                    }
+                    CombatStatus.DEFEAT -> {
+                        if (explorationCombat) {
+                            poweredWorld.copy(players = players, activeCombat = resolved.state)
+                        } else {
+                            poweredWorld.copy(
+                                players = players,
+                                activeCombat = resolved.state,
+                                worldFlags = poweredWorld.worldFlags + ("ARC_PARTY_DEFEATED:${requireNotNull(arc).arcId}" to "true"),
+                            )
+                        }
+                    }
                     CombatStatus.ACTIVE -> poweredWorld.copy(players = players, activeCombat = resolved.state)
                 }
             }
