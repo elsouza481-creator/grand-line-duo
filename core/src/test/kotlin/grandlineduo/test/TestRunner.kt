@@ -50,6 +50,7 @@ fun main() {
     grandlineduo.game.arc.ArcDirectorBridgeTest.register()
     grandlineduo.game.arc.ArcPersistenceTest.register()
     grandlineduo.game.arc.ArcCoordinatorTest.register()
+    grandlineduo.game.arc.ClassMasteryArcIntegrationTest.register()
     grandlineduo.game.arc.ArcLanIntegrationTest.register()
     grandlineduo.game.arc.ArcCombatPersistenceTest.register()
     grandlineduo.game.arc.ArcBossFactoryTest.register()
