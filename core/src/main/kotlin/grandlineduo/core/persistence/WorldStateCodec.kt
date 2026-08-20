@@ -7,6 +7,8 @@ import grandlineduo.game.arc.ArcArchetype
 import grandlineduo.game.arc.ArcPhase
 import grandlineduo.game.arc.ArcState
 import grandlineduo.game.character.CharacterProfile
+import grandlineduo.game.character.ClassMasteryState
+import grandlineduo.game.character.ClassPath
 import grandlineduo.game.character.Skill
 import grandlineduo.game.crew.CrewMemberState
 import grandlineduo.game.crew.CrewRole
@@ -42,7 +44,7 @@ import java.io.DataInputStream
 import java.io.DataOutputStream
 
 object WorldStateCodec {
-    private const val CURRENT_VERSION = 9
+    private const val CURRENT_VERSION = 10
 
     fun encode(state: WorldState): ByteArray {
         val out = ByteArrayOutputStream()
@@ -573,6 +575,12 @@ object WorldStateCodec {
             data.writeInt(fruit.mastery)
             data.writeInt(fruit.useCount)
         }
+
+        val mastery = profile.classMastery
+        data.writeBoolean(mastery != null)
+        if (mastery != null) {
+            writeClassMastery(data, mastery)
+        }
     }
 
     private fun readProfile(data: DataInputStream, version: Int): CharacterProfile {
@@ -619,6 +627,7 @@ object WorldStateCodec {
 
         val haki = if (version >= 3) readHaki(data) else HakiState()
         val devilFruit = if (version >= 3 && data.readBoolean()) readFruit(data) else null
+        val classMastery = if (version >= 10 && data.readBoolean()) readClassMastery(data) else null
 
         return CharacterProfile(
             name = name,
@@ -642,6 +651,57 @@ object WorldStateCodec {
             trainingMarks = marks,
             haki = haki,
             devilFruit = devilFruit,
+            classMastery = classMastery,
+        )
+    }
+
+    private fun writeClassMastery(data: DataOutputStream, mastery: ClassMasteryState) {
+        data.writeUTF(mastery.primaryClass.name)
+
+        val levels = mastery.levels.entries.sortedBy { it.key.ordinal }
+        data.writeInt(levels.size)
+        levels.forEach { (path, level) ->
+            data.writeUTF(path.name)
+            data.writeInt(level)
+        }
+
+        val experience = mastery.experience.entries.sortedBy { it.key.ordinal }
+        data.writeInt(experience.size)
+        experience.forEach { (path, amount) ->
+            data.writeUTF(path.name)
+            data.writeLong(amount)
+        }
+    }
+
+    private fun readClassMastery(data: DataInputStream): ClassMasteryState {
+        val primaryClass = ClassPath.valueOf(data.readUTF())
+
+        val levelCount = data.readInt()
+        require(levelCount in 0..ClassPath.entries.size) { "Invalid class mastery level count" }
+        val levels = linkedMapOf<ClassPath, Int>()
+        repeat(levelCount) {
+            val path = ClassPath.valueOf(data.readUTF())
+            require(path !in levels) { "Duplicate class mastery level $path" }
+            val level = data.readInt()
+            require(level >= 0) { "Invalid class mastery level" }
+            levels[path] = level
+        }
+
+        val experienceCount = data.readInt()
+        require(experienceCount in 0..ClassPath.entries.size) { "Invalid class mastery experience count" }
+        val experience = linkedMapOf<ClassPath, Long>()
+        repeat(experienceCount) {
+            val path = ClassPath.valueOf(data.readUTF())
+            require(path !in experience) { "Duplicate class mastery experience $path" }
+            val amount = data.readLong()
+            require(amount >= 0L) { "Invalid class mastery experience" }
+            experience[path] = amount
+        }
+
+        return ClassMasteryState(
+            primaryClass = primaryClass,
+            levels = levels,
+            experience = experience,
         )
     }
 
