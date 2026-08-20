@@ -122,7 +122,7 @@ object CanonicalStateHasher {
             append("combatActions=").append(combat.lockedActions.size).append(';')
             combat.lockedActions.toSortedMap().forEach { (playerId, action) ->
                 field("combatActionPlayer", playerId)
-                field("combatActionType", action.name)
+                field("combatActionType", action.type.name)
             }
         }
 
