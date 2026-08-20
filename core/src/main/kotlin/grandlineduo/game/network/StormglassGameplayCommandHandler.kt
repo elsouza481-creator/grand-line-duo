@@ -77,6 +77,13 @@ class StormglassGameplayCommandHandler(
 
         require(command.actorId == "p1" || command.actorId == "p2") { "Unknown player ${command.actorId}" }
         val before = hostReplica.state
+        if (TrainingDuelEngine.state(before) != null) {
+            val isDuelCommand = command is GameplayWireCommand.WorldAction &&
+                command.actionType.uppercase().startsWith("DUEL_")
+            require(isDuelCommand) {
+                "Only duel actions are available while a training duel challenge or duel is active"
+            }
+        }
         if (command is GameplayWireCommand.CharacterCreate) {
             return applyCharacterCreate(before, command, fingerprint, hostTimestamp)
         }
@@ -252,6 +259,7 @@ class StormglassGameplayCommandHandler(
             "DUEL_CHALLENGE" -> TrainingDuelEngine.challenge(before, command.actorId)
             "DUEL_ACCEPT" -> TrainingDuelEngine.accept(before, command.actorId)
             "DUEL_DECLINE" -> TrainingDuelEngine.decline(before, command.actorId)
+            "DUEL_CANCEL" -> TrainingDuelEngine.cancel(before, command.actorId)
             "DUEL_ACTION" -> {
                 val action = try {
                     TrainingDuelAction.valueOf(command.target.uppercase())
@@ -370,14 +378,14 @@ class StormglassGameplayCommandHandler(
                 require(before.partyBerries >= cost) { "Insufficient Berries to identify the Devil Fruit" }
                 val updated = updateProfile(before, command.actorId) { profile ->
                     val fruit = profile.devilFruit ?: throw IllegalArgumentException("Character has no Devil Fruit")
-                    profile.copy(devilFruit = DevilFruitEngine.revealIdentity(fruit, PowerDiscoveryEngine.definition(fruit.fruitId)))
+                    profile.copy(deevilFruit = DevilFruitEngine.revealIdentity(fruit, PowerDiscoveryEngine.definition(fruit.fruitId)))
                 }
                 updated.copy(partyBerries = updated.partyBerries - cost)
             }
             "FRUIT_TRAIN" -> updateProfile(before, command.actorId) { profile ->
                 val fruit = profile.devilFruit ?: throw IllegalArgumentException("Character has no Devil Fruit")
                 when (val result = DevilFruitEngine.trainMastery(fruit)) {
-                    is DevilFruitMasteryResult.Advanced -> profile.copy(devilFruit = result.state)
+                    is DevilFruitMasteryResult.Advanced -> profile.copy(deevilFruit = result.state)
                     is DevilFruitMasteryResult.Rejected -> throw IllegalArgumentException("Devil Fruit mastery rejected: ${result.reason}")
                 }
             }
