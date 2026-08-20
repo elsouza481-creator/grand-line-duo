@@ -4,6 +4,7 @@ import grandlineduo.core.model.WorldState
 import grandlineduo.game.character.ClassMasteryMedicalResolver
 
 enum class ItemType { WEAPON, ARMOR, CHARM, CONSUMABLE, MATERIAL, KEY }
+enum class ItemRarity { COMMON, UNCOMMON, RARE, EPIC, LEGENDARY }
 enum class EquipmentSlot { WEAPON, ARMOR, CHARM }
 
 data class ItemDefinition(
@@ -16,6 +17,7 @@ data class ItemDefinition(
     val healHp: Int = 0,
     val restoreEnergy: Int = 0,
     val valueBerries: Long = 0,
+    val rarity: ItemRarity = ItemRarity.COMMON,
 )
 
 data class InventoryState(
@@ -26,18 +28,29 @@ data class InventoryState(
 data class CombatItemBonus(val attackDamage: Int = 0, val damageReduction: Int = 0)
 
 object ItemCatalog {
+    const val FIELD_BOSS_LEGENDARY_ID = "horizon_cleaver"
+
     private val definitions = listOf(
         ItemDefinition("rusted_cutlass", "Sabre Gastado", ItemType.WEAPON, "Lâmina simples, confiável no início da rota.", attackDamage = 2, valueBerries = 800),
-        ItemDefinition("iron_sabre", "Sabre de Ferro", ItemType.WEAPON, "Arma equilibrada para combate próximo.", attackDamage = 4, valueBerries = 2_800),
-        ItemDefinition("flintlock", "Pistola Flintlock", ItemType.WEAPON, "Disparo forte a curta distância.", attackDamage = 4, valueBerries = 3_200),
-        ItemDefinition("reinforced_coat", "Casaco Reforçado", ItemType.ARMOR, "Camadas costuradas para amortecer golpes.", damageReduction = 2, valueBerries = 2_400),
-        ItemDefinition("marine_vest", "Colete Naval", ItemType.ARMOR, "Proteção rígida recuperada de um depósito da Marinha.", damageReduction = 3, valueBerries = 4_800),
-        ItemDefinition("lucky_charm", "Amuleto de Maré", ItemType.CHARM, "Uma lembrança de porto. Pequena vantagem narrativa.", valueBerries = 1_500),
+        ItemDefinition("iron_sabre", "Sabre de Ferro", ItemType.WEAPON, "Arma equilibrada para combate próximo.", attackDamage = 4, valueBerries = 2_800, rarity = ItemRarity.UNCOMMON),
+        ItemDefinition("flintlock", "Pistola Flintlock", ItemType.WEAPON, "Disparo forte a curta distância.", attackDamage = 4, valueBerries = 3_200, rarity = ItemRarity.UNCOMMON),
+        ItemDefinition("reinforced_coat", "Casaco Reforçado", ItemType.ARMOR, "Camadas costuradas para amortecer golpes.", damageReduction = 2, valueBerries = 2_400, rarity = ItemRarity.UNCOMMON),
+        ItemDefinition("marine_vest", "Colete Naval", ItemType.ARMOR, "Proteção rígida recuperada de um depósito da Marinha.", damageReduction = 3, valueBerries = 4_800, rarity = ItemRarity.RARE),
+        ItemDefinition("lucky_charm", "Amuleto de Maré", ItemType.CHARM, "Uma lembrança de porto. Pequena vantagem narrativa.", valueBerries = 1_500, rarity = ItemRarity.RARE),
         ItemDefinition("bandage", "Bandagem", ItemType.CONSUMABLE, "Recupera até 15 PV.", healHp = 15, valueBerries = 250),
-        ItemDefinition("energy_tonic", "Tônico de Energia", ItemType.CONSUMABLE, "Recupera até 8 PE.", restoreEnergy = 8, valueBerries = 450),
+        ItemDefinition("energy_tonic", "Tônico de Energia", ItemType.CONSUMABLE, "Recupera até 8 PE.", restoreEnergy = 8, valueBerries = 450, rarity = ItemRarity.UNCOMMON),
         ItemDefinition("ration", "Ração de Viagem", ItemType.CONSUMABLE, "Recupera até 8 PV e 3 PE.", healHp = 8, restoreEnergy = 3, valueBerries = 180),
-        ItemDefinition("kairouseki_shard", "Fragmento de Kairouseki", ItemType.MATERIAL, "Material raro que enfraquece usuários de Akuma no Mi.", valueBerries = 8_000),
-        ItemDefinition("stormglass_log_pose", "Log Pose de Stormglass", ItemType.KEY, "Abre a rota para as ilhas seguintes.", valueBerries = 0),
+        ItemDefinition("kairouseki_shard", "Fragmento de Kairouseki", ItemType.MATERIAL, "Material raro que enfraquece usuários de Akuma no Mi.", valueBerries = 8_000, rarity = ItemRarity.EPIC),
+        ItemDefinition("stormglass_log_pose", "Log Pose de Stormglass", ItemType.KEY, "Abre a rota para as ilhas seguintes.", valueBerries = 0, rarity = ItemRarity.RARE),
+        ItemDefinition(
+            id = FIELD_BOSS_LEGENDARY_ID,
+            name = "Lâmina Quebra-Horizonte",
+            type = ItemType.WEAPON,
+            description = "Relíquia tomada de um capitão de caça da Grand Line. Seu fio pesado atravessa guardas que armas comuns não vencem.",
+            attackDamage = 8,
+            valueBerries = 50_000,
+            rarity = ItemRarity.LEGENDARY,
+        ),
     ).associateBy { it.id }
 
     fun get(id: String): ItemDefinition = definitions[id] ?: throw IllegalArgumentException("Unknown item $id")
