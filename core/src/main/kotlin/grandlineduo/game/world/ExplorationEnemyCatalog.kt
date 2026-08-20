@@ -14,6 +14,13 @@ enum class ExplorationEnemyRank {
     FIELD_BOSS,
 }
 
+enum class ExplorationBossDifficulty {
+    NONE,
+    HARD,
+    NIGHTMARE,
+    LEGENDARY,
+}
+
 data class ExplorationEnemyProfile(
     val name: String,
     val maxHp: Int,
@@ -24,6 +31,7 @@ data class ExplorationEnemyProfile(
     val rewardMasteryExperience: Int,
     val initialAttackType: EnemyAttackType,
     val respawnSteps: Int,
+    val difficulty: ExplorationBossDifficulty = ExplorationBossDifficulty.NONE,
 )
 
 object ExplorationEnemyCatalog {
@@ -75,16 +83,28 @@ object ExplorationEnemyCatalog {
 
     fun fieldBossProfile(danger: Int): ExplorationEnemyProfile {
         val d = danger.coerceIn(6, 10)
+        val difficulty = when (d) {
+            in 6..7 -> ExplorationBossDifficulty.HARD
+            in 8..9 -> ExplorationBossDifficulty.NIGHTMARE
+            else -> ExplorationBossDifficulty.LEGENDARY
+        }
+        val tier = when (difficulty) {
+            ExplorationBossDifficulty.HARD -> 0
+            ExplorationBossDifficulty.NIGHTMARE -> 1
+            ExplorationBossDifficulty.LEGENDARY -> 2
+            ExplorationBossDifficulty.NONE -> 0
+        }
         return ExplorationEnemyProfile(
-            name = "Capitão de Caça da Rota",
-            maxHp = 110 + d * 12,
-            attackPower = 20 + d * 2,
-            rewardBerries = 1_600L + d * 300L,
+            name = "Capitão de Caça da Rota • Dificuldade ${difficulty.name}",
+            maxHp = 110 + d * 12 + tier * 35,
+            attackPower = 20 + d * 2 + tier * 4,
+            rewardBerries = 1_600L + d * 300L + tier * 900L,
             rewardItemId = if (d >= 8) "kairouseki_shard" else "energy_tonic",
             rewardItemAmount = if (d >= 9) 2 else 1,
-            rewardMasteryExperience = 35 + d * 5,
+            rewardMasteryExperience = 35 + d * 5 + tier * 15,
             initialAttackType = EnemyAttackType.SWEEP,
-            respawnSteps = 50 + d * 3,
+            respawnSteps = 50 + d * 3 + tier * 8,
+            difficulty = difficulty,
         )
     }
 
