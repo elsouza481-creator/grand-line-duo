@@ -152,6 +152,7 @@ object ExplorationEngine {
             questId = questId,
             dialogue = "Perdi uma caixa marcada na estrada leste. Encontre-a e volte aqui; pago pela recuperação.",
         )
+        val npcs = linkedMapOf(questGiver.position to questGiver)
         val objective = ExplorationQuestObjective(
             questId = questId,
             position = questObjectivePosition,
@@ -170,6 +171,20 @@ object ExplorationEngine {
         )
 
         val danger = GrandLineWorldAtlas.describe(campaignId, islandId).danger.coerceIn(1, 10)
+        if (danger >= 6) {
+            val hunterPosition = GridPosition(SPAWN.x + 4, SPAWN.y + 2)
+            tiles[hunterPosition] = ExplorationTile.ROAD
+            val bossQuestId = ExplorationQuestEngine.bossHuntQuestId(islandId)
+            npcs[hunterPosition] = ExplorationNpc(
+                id = "boss-hunter-$islandId",
+                name = "Rook",
+                title = "Caçador de recompensas",
+                position = hunterPosition,
+                questId = bossQuestId,
+                dialogue = "Um capitão de caça controla uma trilha fora da estrada principal. Derrube-o e volte vivo; pago uma recompensa de risco.",
+            )
+        }
+
         val encounterSpecs = listOf(
             Triple("east", "road-hostile-$islandId", GridPosition(SPAWN.x + 7, SPAWN.y)),
             Triple("west", "west-hostile-$islandId", GridPosition(SPAWN.x - 7, SPAWN.y)),
@@ -226,7 +241,7 @@ object ExplorationEngine {
             tiles = tiles.toMap(),
             spawn = SPAWN,
             interactions = interactions.toMap(),
-            npcs = mapOf(questGiver.position to questGiver),
+            npcs = npcs.toMap(),
             questObjectives = mapOf(objective.position to objective),
             pickups = mapOf(pickup.position to pickup),
             enemies = enemies.toMap(),
