@@ -1,0 +1,129 @@
+name: one-shot four player map ui
+
+on:
+  push:
+    branches:
+      - feature/class-mastery-persistence
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/class-mastery-persistence
+      - name: Add local identity and remote player markers
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          presenter = Path('core/src/main/kotlin/grandlineduo/appshell/GamePresenter.kt')
+          text = presenter.read_text()
+          old = '''    val playerPositions: Map<String, GridPosition> = emptyMap(),
+    val interaction: ExplorationInteraction?,
+    val visibleQuestObjectives: Set<GridPosition> = emptySet(),'''
+          new = '''    val playerPositions: Map<String, GridPosition> = emptyMap(),
+    val interaction: ExplorationInteraction?,
+    val localPlayerId: String = "",
+    val visibleQuestObjectives: Set<GridPosition> = emptySet(),'''
+          if old not in text:
+              raise SystemExit('exploration presentation fragment not found')
+          text = text.replace(old, new, 1)
+          old = '''                playerPositions = world.players.keys.sorted().associateWith { ExplorationEngine.position(world, it) },
+                interaction = interaction,
+                visibleQuestObjectives = activeQuestObjectives,'''
+          new = '''                playerPositions = world.players.keys.sorted().associateWith { ExplorationEngine.position(world, it) },
+                interaction = interaction,
+                localPlayerId = actorId,
+                visibleQuestObjectives = activeQuestObjectives,'''
+          if old not in text:
+              raise SystemExit('exploration constructor fragment not found')
+          presenter.write_text(text)
+
+          screen = Path('app/src/main/kotlin/com/grandlineduo/app/ExplorationScreen.kt')
+          s = screen.read_text()
+          old = '    const val PLAYER = 0xFFFFD45AL\n    const val OUTLINE = 0xFF071017L'
+          new = '    const val PLAYER = 0xFFFFD45AL\n    const val REMOTE_PLAYER = 0xFF62C7E8L\n    const val OUTLINE = 0xFF071017L'
+          if old not in s:
+              raise SystemExit('player color fragment not found')
+          s = s.replace(old, new, 1)
+
+          old = '''        val visibleEnemies = presentation.visibleEnemies.size
+        val visibleBosses = presentation.visibleEnemies.count { position ->'''
+          new = '''        val visibleEnemies = presentation.visibleEnemies.size
+        val partyPlayers = presentation.playerPositions.size
+        val visibleBosses = presentation.visibleEnemies.count { position ->'''
+          if old not in s:
+              raise SystemExit('content description count fragment not found')
+          s = s.replace(old, new, 1)
+
+          old = '''        contentDescription = "Mapa da ilha. Posição ${presentation.playerPosition.x}, ${presentation.playerPosition.y}. $npcCount NPC. $activeObjectives objetivo ativo. $visiblePickups cache disponível. $visibleEnemies inimigo hostil, incluindo $visibleBosses chefe de campo.$huntDescription"'''
+          new = '''        contentDescription = "Mapa da ilha. Posição ${presentation.playerPosition.x}, ${presentation.playerPosition.y}. $partyPlayers jogadores da tripulação na sessão. $npcCount NPC. $activeObjectives objetivo ativo. $visiblePickups cache disponível. $visibleEnemies inimigo hostil, incluindo $visibleBosses chefe de campo.$huntDescription"'''
+          if old not in s:
+              raise SystemExit('content description text not found')
+          s = s.replace(old, new, 1)
+
+          old = '''            if (cell.isPlayer) {
+                fill.color = WorldUiColors.PLAYER.toInt()
+                canvas.drawCircle(rect.centerX(), rect.centerY(), size * 0.28f, fill)
+                stroke.color = Color.WHITE
+                stroke.strokeWidth = maxOf(resources.displayMetrics.density * 1.5f, 2f)
+                canvas.drawCircle(rect.centerX(), rect.centerY(), size * 0.28f, stroke)
+                stroke.strokeWidth = resources.displayMetrics.density
+            }'''
+          new = '''            val playersHere = model.playerPositions.entries
+                .filter { it.value == cell.position }
+                .map { it.key }
+                .sorted()
+            if (playersHere.isNotEmpty()) {
+                val offsets = listOf(
+                    -0.16f to -0.16f,
+                    0.16f to -0.16f,
+                    -0.16f to 0.16f,
+                    0.16f to 0.16f,
+                )
+                playersHere.forEachIndexed { index, playerId ->
+                    val offset = offsets[index.coerceAtMost(offsets.lastIndex)]
+                    val centerX = rect.centerX() + size * offset.first
+                    val centerY = rect.centerY() + size * offset.second
+                    val isLocal = playerId == model.localPlayerId
+                    val radius = if (playersHere.size == 1) size * 0.28f else size * 0.20f
+                    fill.color = if (isLocal) WorldUiColors.PLAYER.toInt() else WorldUiColors.REMOTE_PLAYER.toInt()
+                    canvas.drawCircle(centerX, centerY, radius, fill)
+                    stroke.color = Color.WHITE
+                    stroke.strokeWidth = maxOf(resources.displayMetrics.density * if (isLocal) 1.6f else 1.1f, 2f)
+                    canvas.drawCircle(centerX, centerY, radius, stroke)
+                    stroke.strokeWidth = resources.displayMetrics.density
+                    marker.color = WorldUiColors.OUTLINE.toInt()
+                    marker.textSize = if (playersHere.size == 1) size * 0.24f else size * 0.18f
+                    val baseline = centerY - (marker.ascent() + marker.descent()) / 2f
+                    canvas.drawText(playerId.uppercase(), centerX, baseline, marker)
+                }
+            } else if (cell.isPlayer) {
+                // Backward-compatible fallback for older presentation fixtures.
+                fill.color = WorldUiColors.PLAYER.toInt()
+                canvas.drawCircle(rect.centerX(), rect.centerY(), size * 0.28f, fill)
+                stroke.color = Color.WHITE
+                stroke.strokeWidth = maxOf(resources.displayMetrics.density * 1.5f, 2f)
+                canvas.drawCircle(rect.centerX(), rect.centerY(), size * 0.28f, stroke)
+                stroke.strokeWidth = resources.displayMetrics.density
+            }'''
+          if old not in s:
+              raise SystemExit('legacy player draw block not found')
+          screen.write_text(s.replace(old, new, 1))
+          PY
+          grep -F 'val localPlayerId: String' core/src/main/kotlin/grandlineduo/appshell/GamePresenter.kt
+          grep -F 'REMOTE_PLAYER' app/src/main/kotlin/com/grandlineduo/app/ExplorationScreen.kt
+      - name: Commit four-player map UI
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add core/src/main/kotlin/grandlineduo/appshell/GamePresenter.kt app/src/main/kotlin/com/grandlineduo/app/ExplorationScreen.kt
+          git commit -m 'feat: render all LAN players on exploration map'
+          git push origin HEAD:feature/class-mastery-persistence
