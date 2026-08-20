@@ -40,6 +40,7 @@ private object WorldUiColors {
     const val MARKER = 0xFFF7F0D8L
     const val NPC = 0xFF6FD3C8L
     const val QUEST = 0xFFFF8F4EL
+    const val LOOT = 0xFFF1B84BL
 }
 
 class ExplorationScreen(context: Context) : ScrollView(context) {
@@ -141,7 +142,7 @@ class ExplorationScreen(context: Context) : ScrollView(context) {
         ExplorationInteraction.TRAINING -> "✦ Área de treino — progressão disponível aqui"
         ExplorationInteraction.SHIP -> "▰ Navio — manutenção e melhorias disponíveis"
         ExplorationInteraction.CREW -> "● Tripulação — gestão dos companheiros"
-        null -> "Caminhe pelas ruas. NPCs têm ! e objetivos ativos aparecem com ?."
+        null -> "Caminhe pelas ruas. NPCs têm !, objetivos ativos ? e caches aparecem como ◆."
     }
 
     private fun actionButton(label: String, click: () -> Unit) = Button(context).apply {
@@ -190,7 +191,8 @@ private class ExplorationMapView(context: Context) : View(context) {
         )
         val npcCount = presentation.map.npcs.size
         val activeObjectives = presentation.visibleQuestObjectives.size
-        contentDescription = "Mapa da ilha. Posição ${presentation.playerPosition.x}, ${presentation.playerPosition.y}. $npcCount NPC. $activeObjectives objetivo ativo."
+        val visiblePickups = presentation.visiblePickups.size
+        contentDescription = "Mapa da ilha. Posição ${presentation.playerPosition.x}, ${presentation.playerPosition.y}. $npcCount NPC. $activeObjectives objetivo ativo. $visiblePickups cache disponível."
         invalidate()
     }
 
@@ -246,6 +248,15 @@ private class ExplorationMapView(context: Context) : View(context) {
                 marker.textSize = size * 0.28f
                 val baseline = rect.top + size * 0.22f - (marker.ascent() + marker.descent()) / 2f
                 canvas.drawText("?", rect.right - size * 0.22f, baseline, marker)
+            }
+
+            if (cell.position in model.visiblePickups) {
+                fill.color = WorldUiColors.LOOT.toInt()
+                canvas.drawCircle(rect.right - size * 0.22f, rect.bottom - size * 0.22f, size * 0.18f, fill)
+                marker.color = WorldUiColors.OUTLINE.toInt()
+                marker.textSize = size * 0.24f
+                val baseline = rect.bottom - size * 0.22f - (marker.ascent() + marker.descent()) / 2f
+                canvas.drawText("◆", rect.right - size * 0.22f, baseline, marker)
             }
 
             model.map.npcs[cell.position]?.let {
