@@ -100,6 +100,7 @@ fun main() {
     grandlineduo.game.crew.CrewVoyageIntegrationTest.register()
     grandlineduo.game.crew.CrewCoordinatorTest.register()
     grandlineduo.game.crew.CrewDirectorBridgeTest.register()
+    grandlineduo.game.world.GrandLineWorldAtlasTest.register()
 
     var failed = 0
     for (case in TestRegistry.all()) {
