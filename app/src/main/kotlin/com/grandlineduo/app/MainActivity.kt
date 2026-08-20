@@ -162,7 +162,7 @@ class MainActivity : Activity() {
                     "POWER" -> coordinator.submitPowerAction(action.id)
                     "VOYAGE" -> coordinator.submitVoyageAction(VoyageAction.valueOf(action.id))
                     "EXPLORE_MOVE" -> coordinator.submitWorldAction("EXPLORE_MOVE", action.id, 1)
-                    "QUEST_ACCEPT", "QUEST_PROGRESS", "QUEST_TURN_IN" ->
+                    "QUEST_ACCEPT", "QUEST_PROGRESS", "QUEST_TURN_IN", "LOOT_COLLECT" ->
                         coordinator.submitWorldAction(action.kind, action.id, 1)
                     "CAMPAIGN" -> coordinator.advanceCampaign(action.id)
                     else -> throw IllegalArgumentException("Ação não suportada: ${action.kind}")
