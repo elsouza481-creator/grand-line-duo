@@ -19,6 +19,7 @@ import grandlineduo.game.powers.HakiState
 import grandlineduo.game.powers.HakiType
 import grandlineduo.game.world.ExplorationEngine
 import grandlineduo.game.world.ExplorationInteraction
+import grandlineduo.game.world.ExplorationQuestEngine
 import grandlineduo.test.assertEquals
 import grandlineduo.test.assertTrue
 import grandlineduo.test.test
@@ -81,6 +82,36 @@ object GamePresenterTest {
                 assertTrue(routes.all { "perigo" in it.label.lowercase() })
                 assertTrue(p2.actions.none { it.kind == "CAMPAIGN" })
             }
+        }
+
+        test("hub presents physical quest actions only at the matching quest tiles") {
+            var world = profiledWorld().copy(
+                worldFlags = profiledWorld().worldFlags + ("sg.stage" to "COMPLETE"),
+            )
+            val map = ExplorationEngine.mapFor(world.campaignId, world.islandId)
+            val npc = map.npcs.values.single { it.questId != null }
+            val questId = npc.questId!!
+            val objective = map.questObjectives.values.single { it.questId == questId }
+
+            world = ExplorationEngine.place(world, "p1", npc.position)
+            val offered = GamePresenter.present(world, "p1")
+            assertTrue(offered.body.contains(npc.name))
+            assertTrue(offered.actions.any { it.kind == "QUEST_ACCEPT" && it.id == questId })
+            assertTrue(offered.exploration?.visibleQuestObjectives?.isEmpty() == true)
+
+            world = ExplorationQuestEngine.accept(world, "p1", questId)
+            val activeAtNpc = GamePresenter.present(world, "p1")
+            assertTrue(activeAtNpc.actions.none { it.kind == "QUEST_ACCEPT" })
+            assertEquals(setOf(objective.position), activeAtNpc.exploration?.visibleQuestObjectives)
+
+            world = ExplorationEngine.place(world, "p1", objective.position)
+            val atObjective = GamePresenter.present(world, "p1")
+            assertTrue(atObjective.actions.any { it.kind == "QUEST_PROGRESS" && it.id == questId })
+
+            world = ExplorationQuestEngine.progress(world, "p1", questId)
+            world = ExplorationEngine.place(world, "p1", npc.position)
+            val returnView = GamePresenter.present(world, "p1")
+            assertTrue(returnView.actions.any { it.kind == "QUEST_TURN_IN" && it.id == questId })
         }
 
         test("presenter exposes primary class mastery progress in status") {
