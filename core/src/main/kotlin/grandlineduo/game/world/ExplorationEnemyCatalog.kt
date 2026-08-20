@@ -9,6 +9,11 @@ enum class ExplorationEnemyArchetype {
     OFFICER,
 }
 
+enum class ExplorationEnemyRank {
+    COMMON,
+    FIELD_BOSS,
+}
+
 data class ExplorationEnemyProfile(
     val name: String,
     val maxHp: Int,
@@ -66,6 +71,21 @@ object ExplorationEnemyCatalog {
                 respawnSteps = 20 + d,
             )
         }
+    }
+
+    fun fieldBossProfile(danger: Int): ExplorationEnemyProfile {
+        val d = danger.coerceIn(6, 10)
+        return ExplorationEnemyProfile(
+            name = "Capitão de Caça da Rota",
+            maxHp = 110 + d * 12,
+            attackPower = 20 + d * 2,
+            rewardBerries = 1_600L + d * 300L,
+            rewardItemId = if (d >= 8) "kairouseki_shard" else "energy_tonic",
+            rewardItemAmount = if (d >= 9) 2 else 1,
+            rewardMasteryExperience = 35 + d * 5,
+            initialAttackType = EnemyAttackType.SWEEP,
+            respawnSteps = 50 + d * 3,
+        )
     }
 
     /**
