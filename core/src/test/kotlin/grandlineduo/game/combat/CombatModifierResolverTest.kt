@@ -69,6 +69,25 @@ object CombatModifierResolverTest {
             assertEquals(2, modifier.damageReduction)
         }
 
+        test("gunner rogue and captain have distinct deterministic combat roles") {
+            val gunner = modifierFor(
+                ClassMasteryState(ClassPath.GUNNER, levels = mapOf(ClassPath.GUNNER to 10)),
+            )
+            val rogue = modifierFor(
+                ClassMasteryState(ClassPath.ROGUE, levels = mapOf(ClassPath.ROGUE to 10)),
+            )
+            val captain = modifierFor(
+                ClassMasteryState(ClassPath.CAPTAIN, levels = mapOf(ClassPath.CAPTAIN to 10)),
+            )
+
+            assertEquals(2, gunner.attackBonus)
+            assertEquals(0, gunner.damageReduction)
+            assertEquals(2, rogue.attackBonus)
+            assertEquals(0, rogue.damageReduction)
+            assertEquals(1, captain.attackBonus)
+            assertEquals(1, captain.damageReduction)
+        }
+
         test("utility primary classes do not receive generic combat damage") {
             val modifier = modifierFor(
                 ClassMasteryState(
