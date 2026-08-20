@@ -62,21 +62,44 @@ object LanTransportIntegrationTest {
             }
         }
 
+        test("LAN host keeps an authenticated session alive while it is idle") {
+            val initial = WorldState(campaignId = "lan-idle")
+            val hostReplica = HostReplica(initial)
+            LanHostServer(hostReplica, port = 0, handshakeTimeoutMillis = 100).use { server ->
+                server.start()
+                val clientReplica = ClientReplica(initial)
+                LanClientConnection("127.0.0.1", server.boundPort, "p2", clientReplica).use { client ->
+                    client.connect()
+                    Thread.sleep(250)
+                    hostReplica.submit(GrantBerriesCommand("idle-host-change", "p1", 15), 3000)
+                    client.refresh()
+
+                    assertEquals(hostReplica.state, clientReplica.state)
+                    assertEquals(15L, clientReplica.state.partyBerries)
+                }
+            }
+        }
+
         test("LAN host rejects a peer other than configured P2") {
             val initial = WorldState(campaignId = "lan-4")
             val hostReplica = HostReplica(initial)
             LanHostServer(hostReplica, port = 0, allowedClientId = "p2").use { server ->
                 server.start()
+                val clientReplica = ClientReplica(initial)
                 val intruder = LanClientConnection(
                     "127.0.0.1",
                     server.boundPort,
                     "p3",
-                    ClientReplica(initial),
+                    clientReplica,
                 )
-                var failed = false
-                try { intruder.connect() } catch (_: LanSessionException) { failed = true }
-                finally { intruder.close() }
-                assertEquals(true, failed)
+                var rejected = false
+                try {
+                    intruder.connect()
+                } catch (_: LanSessionException) {
+                    rejected = true
+                }
+                assertEquals(true, rejected)
+                intruder.close()
             }
         }
     }
