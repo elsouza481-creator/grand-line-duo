@@ -2,6 +2,7 @@ package grandlineduo.appshell
 
 import grandlineduo.game.character.Attribute
 import grandlineduo.game.character.CharacterDraft
+import grandlineduo.game.character.ClassPath
 import grandlineduo.game.character.Skill
 
 data class CharacterBuildPreset(val id: String, val label: String)
@@ -23,7 +24,26 @@ object CharacterPresetFactory {
         "NAVEGADOR" to mapOf(Skill.NAVIGATION to 2, Skill.SURVIVAL to 2, Skill.PERCEPTION to 2, Skill.WORLD_KNOWLEDGE to 2),
         "MEDICO" to mapOf(Skill.MEDICINE to 2, Skill.INSIGHT to 2, Skill.PERCEPTION to 2, Skill.WORLD_KNOWLEDGE to 2),
         "ENGENHEIRO" to mapOf(Skill.ENGINEERING to 2, Skill.CARPENTRY to 2, Skill.INVESTIGATION to 2, Skill.WORLD_KNOWLEDGE to 2),
+        "COZINHEIRO" to mapOf(Skill.COOKING to 2, Skill.SURVIVAL to 2, Skill.INSIGHT to 2, Skill.UNARMED_COMBAT to 2),
+        "LADINO" to mapOf(Skill.THIEVERY to 2, Skill.STEALTH to 2, Skill.DECEPTION to 2, Skill.ACROBATICS to 2),
+        "ERUDITO" to mapOf(Skill.HISTORY to 2, Skill.WORLD_KNOWLEDGE to 2, Skill.INVESTIGATION to 2, Skill.MEDICINE to 2),
+        "CAPITAO" to mapOf(Skill.PERSUASION to 2, Skill.INTIMIDATION to 2, Skill.INSIGHT to 2, Skill.NAVIGATION to 2),
+        // Legacy UI alias kept readable even though it is no longer presented as a distinct class.
         "CHARLATAO" to mapOf(Skill.DECEPTION to 2, Skill.PERSUASION to 2, Skill.INSIGHT to 2, Skill.PERFORMANCE to 2),
+    )
+
+    private val classPaths = mapOf(
+        "ESPADACHIM" to ClassPath.SWORDSMAN,
+        "LUTADOR" to ClassPath.BRAWLER,
+        "ATIRADOR" to ClassPath.GUNNER,
+        "NAVEGADOR" to ClassPath.NAVIGATOR,
+        "MEDICO" to ClassPath.DOCTOR,
+        "ENGENHEIRO" to ClassPath.SHIPWRIGHT,
+        "COZINHEIRO" to ClassPath.COOK,
+        "LADINO" to ClassPath.ROGUE,
+        "ERUDITO" to ClassPath.SCHOLAR,
+        "CAPITAO" to ClassPath.CAPTAIN,
+        "CHARLATAO" to ClassPath.ROGUE,
     )
 
     fun attributePresets(): List<CharacterBuildPreset> = listOf(
@@ -41,8 +61,11 @@ object CharacterPresetFactory {
         CharacterBuildPreset("ATIRADOR", "Atirador"),
         CharacterBuildPreset("NAVEGADOR", "Navegador"),
         CharacterBuildPreset("MEDICO", "Médico"),
-        CharacterBuildPreset("ENGENHEIRO", "Engenheiro"),
-        CharacterBuildPreset("CHARLATAO", "Negociador"),
+        CharacterBuildPreset("ENGENHEIRO", "Carpinteiro / Engenheiro"),
+        CharacterBuildPreset("COZINHEIRO", "Cozinheiro"),
+        CharacterBuildPreset("LADINO", "Ladino"),
+        CharacterBuildPreset("ERUDITO", "Erudito"),
+        CharacterBuildPreset("CAPITAO", "Capitão"),
     )
 
     fun createDraft(
@@ -58,8 +81,9 @@ object CharacterPresetFactory {
         outfit: String,
         accent: String,
     ): CharacterDraft {
+        val selectedSkillPreset = if (skillPreset in skills) skillPreset else "ESPADACHIM"
         val attributeMap = attributes[attributePreset] ?: attributes.getValue("EQUILIBRADO")
-        val skillMap = skills[skillPreset] ?: skills.getValue("ESPADACHIM")
+        val skillMap = skills.getValue(selectedSkillPreset)
         return CharacterDraft(
             name = name.trim(),
             age = age,
@@ -78,6 +102,7 @@ object CharacterPresetFactory {
             defect = "Insiste em assumir riscos quando alguém da tripulação está ameaçado",
             attributes = attributeMap,
             skills = skillMap,
+            classPath = classPaths.getValue(selectedSkillPreset),
         )
     }
 }
