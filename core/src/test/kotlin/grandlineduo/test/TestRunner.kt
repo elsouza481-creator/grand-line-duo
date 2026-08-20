@@ -103,6 +103,7 @@ fun main() {
     grandlineduo.game.world.ExplorationEngineTest.register()
     grandlineduo.game.world.ExplorationCommandIntegrationTest.register()
     grandlineduo.game.world.ExplorationViewportTest.register()
+    grandlineduo.game.world.WorldInteractionAuthorityTest.register()
 
     var failed = 0
     for (case in TestRegistry.all()) {
