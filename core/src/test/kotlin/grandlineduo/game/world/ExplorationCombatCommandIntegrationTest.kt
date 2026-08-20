@@ -14,7 +14,7 @@ object ExplorationCombatCommandIntegrationTest {
     fun register() {
         test("authoritative exploration movement onto a hostile tile starts free roam combat") {
             var initial = world("free-roam-command-start")
-            val enemy = ExplorationEngine.mapFor(initial.campaignId, initial.islandId).enemies.values.single()
+            val enemy = ExplorationEngine.mapFor(initial.campaignId, initial.islandId).enemies.values.sortedBy { it.id }.first()
             initial = ExplorationEngine.place(initial, "p1", GridPosition(enemy.position.x - 1, enemy.position.y))
             val host = HostReplica(initial)
             val handler = StormglassGameplayCommandHandler(host, seed = 71)
@@ -32,7 +32,7 @@ object ExplorationCombatCommandIntegrationTest {
 
         test("free roam basic combat resolves on host and victory reward is idempotent without an active arc") {
             var initial = world("free-roam-command-combat")
-            val enemy = ExplorationEngine.mapFor(initial.campaignId, initial.islandId).enemies.values.single()
+            val enemy = ExplorationEngine.mapFor(initial.campaignId, initial.islandId).enemies.values.sortedBy { it.id }.first()
             initial = ExplorationEngine.place(initial, "p1", enemy.position)
             initial = ExplorationCombatEngine.startIfEncountered(initial, "p1")
             initial = initial.copy(activeCombat = initial.activeCombat!!.copy(enemy = initial.activeCombat!!.enemy.copy(hp = 1)))
