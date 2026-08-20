@@ -10,6 +10,15 @@ on:
       - "settings.gradle.kts"
       - "gradle.properties"
       - ".github/workflows/main-source-build.yml"
+  pull_request:
+    branches: ["main"]
+    paths:
+      - "app/**"
+      - "core/**"
+      - "tools/**"
+      - "settings.gradle.kts"
+      - "gradle.properties"
+      - ".github/workflows/main-source-build.yml"
   workflow_dispatch:
 
 permissions:
