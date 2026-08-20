@@ -71,6 +71,7 @@ data class ExplorationEnemy(
     val rewardMasteryExperience: Int,
     val initialAttackType: EnemyAttackType,
     val respawnSteps: Int,
+    val rank: ExplorationEnemyRank = ExplorationEnemyRank.COMMON,
 )
 
 data class ExplorationMap(
@@ -191,6 +192,27 @@ object ExplorationEngine {
                 rewardMasteryExperience = profile.rewardMasteryExperience,
                 initialAttackType = profile.initialAttackType,
                 respawnSteps = profile.respawnSteps,
+            )
+        }
+
+        if (danger >= 6) {
+            val position = GridPosition(SPAWN.x, SPAWN.y + 6)
+            tiles[position] = ExplorationTile.ROAD
+            val profile = ExplorationEnemyCatalog.fieldBossProfile(danger)
+            enemies[position] = ExplorationEnemy(
+                id = "field-boss-$islandId",
+                name = profile.name,
+                archetype = ExplorationEnemyArchetype.OFFICER,
+                position = position,
+                maxHp = profile.maxHp,
+                attackPower = profile.attackPower,
+                rewardBerries = profile.rewardBerries,
+                rewardItemId = profile.rewardItemId,
+                rewardItemAmount = profile.rewardItemAmount,
+                rewardMasteryExperience = profile.rewardMasteryExperience,
+                initialAttackType = profile.initialAttackType,
+                respawnSteps = profile.respawnSteps,
+                rank = ExplorationEnemyRank.FIELD_BOSS,
             )
         }
 
