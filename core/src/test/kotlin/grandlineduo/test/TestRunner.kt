@@ -118,6 +118,7 @@ fun main() {
     grandlineduo.game.world.ExplorationCombatLanIntegrationTest.register()
     grandlineduo.game.pvp.TrainingDuelEngineTest.register()
     grandlineduo.game.pvp.TrainingDuelLanIntegrationTest.register()
+    grandlineduo.game.pvp.TrainingDuelAuthorityTest.register()
 
     var failed = 0
     for (case in TestRegistry.all()) {
