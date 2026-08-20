@@ -28,7 +28,7 @@ object TrainingDuelPresentationTest {
             assertTrue(together.actions.any { it.kind == "EXPLORE_MOVE" })
         }
 
-        test("challenged player can accept or decline while challenger waits in the arena") {
+        test("challenged player can accept or decline while challenger can cancel in the arena") {
             var world = world("duel-present-challenge")
             val training = trainingPosition(world)
             world = ExplorationEngine.place(world, "p1", training)
@@ -40,6 +40,7 @@ object TrainingDuelPresentationTest {
             assertTrue("desafio" in challenger.body.lowercase())
             assertTrue(challenger.actions.none { it.kind == "EXPLORE_MOVE" })
             assertTrue(challenger.actions.none { it.kind == "DUEL_ACCEPT" })
+            assertTrue(challenger.actions.any { it.kind == "DUEL_CANCEL" })
             assertTrue(opponent.actions.any { it.kind == "DUEL_ACCEPT" })
             assertTrue(opponent.actions.any { it.kind == "DUEL_DECLINE" })
             assertTrue(opponent.actions.none { it.kind == "EXPLORE_MOVE" })
