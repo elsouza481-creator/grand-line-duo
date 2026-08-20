@@ -91,7 +91,11 @@ class GameSessionCoordinator(private val saveRoot: Path? = null) : Closeable {
         discoveryPort: Int = 37778,
     ) {
         val ad = advertisement ?: throw IllegalStateException("No hosted co-op campaign")
-        LanDiscoveryAdvertiser(targetAddress, discoveryPort).use { it.send(ad) }
+        val liveAdvertisement = ad.copy(
+            currentPlayers = 1 + (hostServer?.activeClientCount ?: 0),
+            maxPlayers = 4,
+        )
+        LanDiscoveryAdvertiser(targetAddress, discoveryPort).use { it.send(liveAdvertisement) }
     }
 
     @Synchronized
@@ -102,7 +106,6 @@ class GameSessionCoordinator(private val saveRoot: Path? = null) : Closeable {
     ): WorldState {
         closeSessionResources()
         mode = SessionMode.CLIENT_COOP
-        actorId = "p2"
         val discovered = LanDiscoveryListener(bindAddress, discoveryPort).use { listener ->
             listener.start()
             listener.receive(timeoutMillis)
@@ -112,10 +115,12 @@ class GameSessionCoordinator(private val saveRoot: Path? = null) : Closeable {
         val connection = LanClientConnection(
             host = discovered.sourceAddress.hostAddress,
             port = ad.tcpPort,
-            peerId = "p2",
+            peerId = LanClientConnection.AUTO_SLOT,
             replica = replica,
         )
         connection.connect()
+        actorId = connection.assignedPeerId
+            ?: throw IllegalStateException("O host não atribuiu um slot de jogador")
         clientReplica = replica
         clientConnection = connection
         return replica.state
