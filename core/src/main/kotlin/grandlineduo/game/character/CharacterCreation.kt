@@ -61,6 +61,7 @@ object CharacterCreation {
                 defect = draft.defect.trim(),
                 attributes = Attribute.entries.associateWith { draft.attributes.getValue(it) },
                 skills = draft.skills.filterValues { it > 0 }.toSortedMap(compareBy { it.ordinal }),
+                classMastery = draft.classPath?.let(ClassMasteryEngine::start),
             )
         )
     }
