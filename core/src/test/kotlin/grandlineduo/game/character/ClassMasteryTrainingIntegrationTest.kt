@@ -15,11 +15,12 @@ import grandlineduo.test.test
 
 object ClassMasteryTrainingIntegrationTest {
     fun register() {
-        test("authoritative class training grants fixed effort and ignores client supplied amount") {
+        test("authoritative class training grants fixed effort costs five energy and ignores client supplied amount") {
             val profile = createdProfile(ClassPath.NAVIGATOR)
             val host = HostReplica(worldAtTraining(profile))
             val handler = StormglassGameplayCommandHandler(host, seed = 77)
             val beforeHash = CanonicalStateHasher.hash(host.state)
+            val energyBefore = host.state.players.getValue("p1").energy
 
             handler.handle(
                 GameplayWireCommand.WorldAction(
@@ -32,9 +33,11 @@ object ClassMasteryTrainingIntegrationTest {
                 1_000,
             )
 
-            val mastery = host.state.players.getValue("p1").profile!!.classMastery!!
+            val player = host.state.players.getValue("p1")
+            val mastery = player.profile!!.classMastery!!
             assertEquals(ClassPath.NAVIGATOR, mastery.primaryClass)
             assertEquals(25L, mastery.experienceOf(ClassPath.NAVIGATOR))
+            assertEquals(energyBefore - 5, player.energy)
             assertNotEquals(beforeHash, CanonicalStateHasher.hash(host.state))
         }
 
@@ -57,6 +60,35 @@ object ClassMasteryTrainingIntegrationTest {
             val mastery = host.state.players.getValue("p1").profile!!.classMastery!!
             assertEquals(ClassPath.NAVIGATOR, mastery.primaryClass)
             assertEquals(25L, mastery.experienceOf(ClassPath.GUNNER))
+        }
+
+        test("class training rejects insufficient energy without mutation") {
+            val profile = createdProfile(ClassPath.NAVIGATOR)
+            val initial = worldAtTraining(profile).let { world ->
+                val p1 = world.players.getValue("p1")
+                world.copy(players = world.players + ("p1" to p1.copy(energy = 4)))
+            }
+            val host = HostReplica(initial)
+            val handler = StormglassGameplayCommandHandler(host, seed = 87)
+            var rejected = false
+
+            try {
+                handler.handle(
+                    GameplayWireCommand.WorldAction(
+                        commandId = "class-train-exhausted",
+                        actorId = "p1",
+                        actionType = "TRAIN_CLASS",
+                        target = ClassPath.NAVIGATOR.name,
+                        amount = 999,
+                    ),
+                    1_099,
+                )
+            } catch (_: IllegalArgumentException) {
+                rejected = true
+            }
+
+            assertTrue(rejected, "Class training must require five energy")
+            assertEquals(initial, host.state)
         }
 
         test("class training is rejected away from the physical training area") {
