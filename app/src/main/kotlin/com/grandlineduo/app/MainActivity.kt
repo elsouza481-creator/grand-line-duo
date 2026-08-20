@@ -194,6 +194,13 @@ class MainActivity : Activity() {
                 view.render(world, coordinator.actorId)
                 setContentView(view)
             }
+            "QUESTS" -> {
+                val view = QuestJournalScreen(this).apply {
+                    onBack = { closeOverlay() }
+                }
+                view.render(world, coordinator.actorId)
+                setContentView(view)
+            }
             "SHOP" -> {
                 val view = ShopScreen(this).apply {
                     onBack = { closeOverlay() }
