@@ -110,7 +110,7 @@ object WorldStateCodec {
             val activeCombat = if (version >= 9 && data.readBoolean()) readCombatState(data) else null
 
             val playerCount = data.readInt()
-            require(playerCount in 0..2) { "Invalid player count" }
+            require(playerCount in 0..4) { "Invalid player count" }
             val players = linkedMapOf<String, PlayerState>()
             repeat(playerCount) {
                 val key = data.readUTF()
