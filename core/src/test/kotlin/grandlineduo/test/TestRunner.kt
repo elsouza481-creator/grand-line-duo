@@ -104,6 +104,8 @@ fun main() {
     grandlineduo.game.world.ExplorationCommandIntegrationTest.register()
     grandlineduo.game.world.ExplorationViewportTest.register()
     grandlineduo.game.world.WorldInteractionAuthorityTest.register()
+    grandlineduo.game.world.ExplorationQuestEngineTest.register()
+    grandlineduo.game.world.ExplorationQuestCommandIntegrationTest.register()
 
     var failed = 0
     for (case in TestRegistry.all()) {
