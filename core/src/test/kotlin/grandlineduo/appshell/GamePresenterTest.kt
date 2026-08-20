@@ -9,6 +9,7 @@ import grandlineduo.game.character.ClassMasteryEngine
 import grandlineduo.game.character.ClassPath
 import grandlineduo.game.combat.CombatActionType
 import grandlineduo.game.combat.CombatState
+import grandlineduo.game.combat.CombatStatus
 import grandlineduo.game.combat.Combatant
 import grandlineduo.game.combat.EnemyAttackType
 import grandlineduo.game.combat.EnemyCombatant
@@ -17,6 +18,7 @@ import grandlineduo.game.scenario.ScenarioState
 import grandlineduo.game.powers.HakiDiscipline
 import grandlineduo.game.powers.HakiState
 import grandlineduo.game.powers.HakiType
+import grandlineduo.game.world.ExplorationCombatEngine
 import grandlineduo.game.world.ExplorationEngine
 import grandlineduo.game.world.ExplorationInteraction
 import grandlineduo.game.world.ExplorationLootEngine
@@ -133,6 +135,35 @@ object GamePresenterTest {
             assertTrue(afterP1.exploration?.visiblePickups?.isEmpty() == true)
             assertTrue(afterP2.exploration?.visiblePickups?.isEmpty() == true)
             assertTrue(afterP1.actions.none { it.kind == "LOOT_COLLECT" })
+        }
+
+        test("hub shows live physical enemies and hides them after authoritative victory") {
+            var world = profiledWorld().copy(
+                worldFlags = profiledWorld().worldFlags + ("sg.stage" to "COMPLETE"),
+            )
+            val enemy = ExplorationEngine.mapFor(world.campaignId, world.islandId).enemies.values.single()
+
+            val beforeP1 = GamePresenter.present(world, "p1")
+            val beforeP2 = GamePresenter.present(world, "p2")
+            assertEquals(setOf(enemy.position), beforeP1.exploration?.visibleEnemies)
+            assertEquals(setOf(enemy.position), beforeP2.exploration?.visibleEnemies)
+
+            world = ExplorationEngine.place(world, "p1", enemy.position)
+            world = ExplorationCombatEngine.startIfEncountered(world, "p1")
+            val combat = world.activeCombat!!
+            world = ExplorationCombatEngine.completeVictory(
+                world.copy(
+                    activeCombat = combat.copy(
+                        enemy = combat.enemy.copy(hp = 0),
+                        status = CombatStatus.VICTORY,
+                    )
+                )
+            )
+
+            val afterP1 = GamePresenter.present(world, "p1")
+            val afterP2 = GamePresenter.present(world, "p2")
+            assertTrue(afterP1.exploration?.visibleEnemies?.isEmpty() == true)
+            assertTrue(afterP2.exploration?.visibleEnemies?.isEmpty() == true)
         }
 
         test("presenter exposes primary class mastery progress in status") {
