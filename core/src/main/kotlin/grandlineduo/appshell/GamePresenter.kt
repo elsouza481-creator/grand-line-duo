@@ -42,6 +42,7 @@ data class ExplorationPresentation(
     val visibleQuestObjectives: Set<GridPosition> = emptySet(),
     val visiblePickups: Set<GridPosition> = emptySet(),
     val visibleEnemies: Set<GridPosition> = emptySet(),
+    val trackedBossHuntTarget: GridPosition? = null,
 )
 
 data class GamePresentation(
@@ -187,20 +188,41 @@ object GamePresenter {
             .map { it.position }
             .toSet()
         val fieldBoss = map.enemies.values.firstOrNull { it.rank == ExplorationEnemyRank.FIELD_BOSS }
+        val bossHuntQuestId = fieldBoss
+            ?.let { ExplorationQuestEngine.bossHuntQuestId(world.islandId) }
+            ?.takeIf { id -> map.npcs.values.any { it.questId == id } }
+        val bossHuntStatus = bossHuntQuestId?.let { ExplorationQuestEngine.status(world, actorId, it) }
+        val trackedBossHuntTarget = if (
+            bossHuntStatus == ExplorationQuestStatus.ACTIVE &&
+            fieldBoss != null &&
+            !ExplorationCombatEngine.isDefeated(world, fieldBoss.id)
+        ) {
+            fieldBoss.position
+        } else {
+            null
+        }
+        val bossHuntIntel = when (bossHuntStatus) {
+            ExplorationQuestStatus.ACTIVE ->
+                "CAÇADA ATIVA • ${fieldBoss?.name ?: "Chefe de campo"} • derrote o field boss e volte a Rook."
+            ExplorationQuestStatus.OBJECTIVE_COMPLETE ->
+                "CAÇADA CONCLUÍDA • ${fieldBoss?.name ?: "O chefe de campo"} caiu • volte a Rook para receber ${ExplorationQuestEngine.BOSS_REWARD_BERRIES} Berries + recompensa de caça."
+            ExplorationQuestStatus.AVAILABLE, ExplorationQuestStatus.TURNED_IN, null -> null
+        }
         val fieldBossIntel = fieldBoss?.let { boss ->
             val remaining = ExplorationCombatEngine.stepsUntilRespawn(world, boss.id)
+            val difficulty = "dificuldade ${boss.difficulty.name.lowercase()}"
             when {
                 remaining == Int.MAX_VALUE ->
-                    "CHEFE DE CAMPO • ${boss.name} • derrotado permanentemente • ${boss.maxHp} PV • ataque ${boss.attackPower} • recompensa ${boss.rewardBerries} Berries + ${boss.rewardMasteryExperience} XP"
+                    "CHEFE DE CAMPO • ${boss.name} • $difficulty • derrotado permanentemente • ${boss.maxHp} PV • ataque ${boss.attackPower} • recompensa ${boss.rewardBerries} Berries + ${boss.rewardMasteryExperience} XP"
                 remaining > 0 ->
-                    "CHEFE DE CAMPO • ${boss.name} • derrotado • reaparece em $remaining passos • ${boss.maxHp} PV • ataque ${boss.attackPower} • recompensa ${boss.rewardBerries} Berries + ${boss.rewardMasteryExperience} XP"
+                    "CHEFE DE CAMPO • ${boss.name} • $difficulty • derrotado • reaparece em $remaining passos • ${boss.maxHp} PV • ataque ${boss.attackPower} • recompensa ${boss.rewardBerries} Berries + ${boss.rewardMasteryExperience} XP"
                 else -> {
                     val firstClearOffer = if (!ExplorationCombatEngine.hasClaimedFirstClear(world, boss.id)) {
                         " • PRIMEIRA VITÓRIA 2X • Berries + XP"
                     } else {
                         ""
                     }
-                    "CHEFE DE CAMPO • ${boss.name} • ATIVO • ${boss.maxHp} PV • ataque ${boss.attackPower} • recompensa ${boss.rewardBerries} Berries + ${boss.rewardMasteryExperience} XP • respawn ${boss.respawnSteps} passos após vitória$firstClearOffer"
+                    "CHEFE DE CAMPO • ${boss.name} • $difficulty • ATIVO • ${boss.maxHp} PV • ataque ${boss.attackPower} • recompensa ${boss.rewardBerries} Berries + ${boss.rewardMasteryExperience} XP • respawn ${boss.respawnSteps} passos após vitória$firstClearOffer"
                 }
             }
         }
@@ -253,12 +275,27 @@ object GamePresenter {
         }
         val island = GrandLineWorldAtlas.describe(world.campaignId, world.islandId)
         val physicalContext = when {
-            npc != null -> when (questStatus) {
-                ExplorationQuestStatus.AVAILABLE -> "${npc.name}, ${npc.title}: ${npc.dialogue}"
-                ExplorationQuestStatus.ACTIVE -> "${npc.name}: A caixa está na estrada leste. Volte quando encontrá-la."
-                ExplorationQuestStatus.OBJECTIVE_COMPLETE -> "${npc.name}: Você encontrou? Traga a caixa para mim."
-                ExplorationQuestStatus.TURNED_IN -> "${npc.name}: Bom trabalho. A recompensa é sua."
-                null -> "${npc.name}, ${npc.title}."
+            npc != null -> {
+                val isBossHunt = npc.questId?.let(ExplorationQuestEngine::isBossHuntQuest) == true
+                when (questStatus) {
+                    ExplorationQuestStatus.AVAILABLE -> "${npc.name}, ${npc.title}: ${npc.dialogue}"
+                    ExplorationQuestStatus.ACTIVE -> if (isBossHunt) {
+                        "${npc.name}: A caçada está ativa. Derrube ${fieldBoss?.name ?: "o chefe de campo"} e volte vivo."
+                    } else {
+                        "${npc.name}: A caixa está na estrada leste. Volte quando encontrá-la."
+                    }
+                    ExplorationQuestStatus.OBJECTIVE_COMPLETE -> if (isBossHunt) {
+                        "${npc.name}: Você voltou vivo. Entregue o contrato para receber a recompensa."
+                    } else {
+                        "${npc.name}: Você encontrou? Traga a caixa para mim."
+                    }
+                    ExplorationQuestStatus.TURNED_IN -> if (isBossHunt) {
+                        "${npc.name}: Contrato encerrado. Boa caçada."
+                    } else {
+                        "${npc.name}: Bom trabalho. A recompensa é sua."
+                    }
+                    null -> "${npc.name}, ${npc.title}."
+                }
             }
             objective != null && questStatus == ExplorationQuestStatus.ACTIVE -> "Você encontrou ${objective.label}. Examine o local para cumprir o objetivo."
             pickup != null -> "Você encontrou ${pickup.label}. Colete antes que outra tripulação chegue."
@@ -272,6 +309,7 @@ object GamePresenter {
         val contextualBody = buildList {
             add(body)
             physicalContext?.let(::add)
+            bossHuntIntel?.let(::add)
             fieldBossIntel?.let(::add)
         }.joinToString("\n")
         return GamePresentation(
@@ -287,6 +325,7 @@ object GamePresenter {
                 visibleQuestObjectives = activeQuestObjectives,
                 visiblePickups = visiblePickups,
                 visibleEnemies = visibleEnemies,
+                trackedBossHuntTarget = trackedBossHuntTarget,
             ),
         )
     }
