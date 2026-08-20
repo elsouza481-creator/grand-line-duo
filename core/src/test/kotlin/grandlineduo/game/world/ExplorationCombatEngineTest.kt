@@ -3,6 +3,11 @@ package grandlineduo.game.world
 import grandlineduo.core.model.PlayerState
 import grandlineduo.core.model.WorldState
 import grandlineduo.game.InventoryEngine
+import grandlineduo.game.character.CharacterCreation
+import grandlineduo.game.character.CharacterCreationResult
+import grandlineduo.game.character.CharacterCreationTest
+import grandlineduo.game.character.ClassMasteryEngine
+import grandlineduo.game.character.ClassPath
 import grandlineduo.game.combat.CombatStatus
 import grandlineduo.game.combat.EnemyAttackType
 import grandlineduo.test.assertEquals
@@ -31,11 +36,12 @@ object ExplorationCombatEngineTest {
                 assertTrue(enemy.rewardBerries > 0)
                 assertTrue(enemy.rewardItemId.isNotBlank())
                 assertTrue(enemy.rewardItemAmount > 0)
+                assertTrue(enemy.rewardMasteryExperience > 0)
                 assertTrue(enemy.respawnSteps > 0)
             }
         }
 
-        test("enemy archetypes have distinct combat roles scale with danger and declare tactical openings") {
+        test("enemy archetypes have distinct combat roles scale rewards with danger and declare tactical openings") {
             val lowDanger = ExplorationEnemyArchetype.entries.associateWith {
                 ExplorationEnemyCatalog.profile(it, danger = 2)
             }
@@ -53,6 +59,7 @@ object ExplorationCombatEngineTest {
                 assertTrue(high.maxHp > low.maxHp)
                 assertTrue(high.attackPower > low.attackPower)
                 assertTrue(high.rewardBerries > low.rewardBerries)
+                assertTrue(high.rewardMasteryExperience > low.rewardMasteryExperience)
                 assertTrue(low.rewardItemId.isNotBlank())
                 assertTrue(high.rewardItemId.isNotBlank())
                 assertTrue(low.respawnSteps > 0)
@@ -116,6 +123,56 @@ object ExplorationCombatEngineTest {
             val revisited = ExplorationCombatEngine.startIfEncountered(completed, "p1")
             assertEquals(afterP1, InventoryEngine.read(revisited, "p1").items[enemy.rewardItemId])
             assertEquals(afterP2, InventoryEngine.read(revisited, "p2").items[enemy.rewardItemId])
+        }
+
+        test("free roam victory trains only the surviving fighters primary class") {
+            var world = masteryWorld("free-roam-mastery")
+            val enemy = ExplorationEngine.mapFor(world.campaignId, world.islandId).enemies.values.sortedBy { it.id }.first()
+            val p1Before = world.players.getValue("p1").profile!!.classMastery!!
+            val p2Before = world.players.getValue("p2").profile!!.classMastery!!
+            assertEquals(9L, p1Before.experienceOf(ClassPath.GUNNER))
+
+            world = ExplorationEngine.place(world, "p1", enemy.position)
+            world = ExplorationCombatEngine.startIfEncountered(world, "p1")
+            val combat = world.activeCombat!!
+            val p2Down = combat.players.getValue("p2").copy(hp = 0)
+            val won = world.copy(
+                activeCombat = combat.copy(
+                    players = combat.players + ("p2" to p2Down),
+                    enemy = combat.enemy.copy(hp = 0),
+                    status = CombatStatus.VICTORY,
+                )
+            )
+
+            val completed = ExplorationCombatEngine.completeVictory(won)
+            val p1After = completed.players.getValue("p1").profile!!.classMastery!!
+            val p2After = completed.players.getValue("p2").profile!!.classMastery!!
+
+            assertEquals(enemy.rewardMasteryExperience.toLong(), p1After.experienceOf(ClassPath.SWORDSMAN))
+            assertEquals(9L, p1After.experienceOf(ClassPath.GUNNER))
+            assertEquals(p2Before, p2After)
+        }
+
+        test("free roam mastery reward ignores legacy profiles without a chosen class") {
+            var world = world("free-roam-mastery-legacy")
+            val legacyProfile = (CharacterCreation.create(CharacterCreationTest.validDraft()) as CharacterCreationResult.Success).profile
+            world = world.copy(
+                players = world.players + ("p1" to world.players.getValue("p1").copy(profile = legacyProfile)),
+            )
+            val enemy = ExplorationEngine.mapFor(world.campaignId, world.islandId).enemies.values.sortedBy { it.id }.first()
+            world = ExplorationEngine.place(world, "p1", enemy.position)
+            world = ExplorationCombatEngine.startIfEncountered(world, "p1")
+            val combat = world.activeCombat!!
+            val completed = ExplorationCombatEngine.completeVictory(
+                world.copy(
+                    activeCombat = combat.copy(
+                        enemy = combat.enemy.copy(hp = 0),
+                        status = CombatStatus.VICTORY,
+                    )
+                )
+            )
+
+            assertEquals(null, completed.players.getValue("p1").profile!!.classMastery)
         }
 
         test("free roam victory removes only that encounter rewards party once during cooldown") {
@@ -218,6 +275,31 @@ object ExplorationCombatEngineTest {
             world = ExplorationEngine.move(world, "p1", direction)
         }
         return world
+    }
+
+    private fun masteryWorld(id: String): WorldState {
+        val p1Created = CharacterCreation.create(
+            CharacterCreationTest.validDraft().copy(name = "A", classPath = ClassPath.SWORDSMAN)
+        ) as CharacterCreationResult.Success
+        val p1Mastery = ClassMasteryEngine.train(
+            p1Created.profile.classMastery!!,
+            ClassPath.GUNNER,
+            9,
+        )
+        val p1Profile = p1Created.profile.copy(classMastery = p1Mastery)
+        val p2Created = CharacterCreation.create(
+            CharacterCreationTest.validDraft().copy(name = "B", classPath = ClassPath.NAVIGATOR)
+        ) as CharacterCreationResult.Success
+        val p2Profile = p2Created.profile
+        return WorldState(
+            campaignId = id,
+            islandId = "stormglass-cay",
+            partyBerries = 1_000,
+            players = mapOf(
+                "p1" to PlayerState("p1", p1Profile.name, p1Profile.maxHp, p1Profile.maxHp, 0, p1Profile.maxEnergy, p1Profile.maxEnergy, p1Profile),
+                "p2" to PlayerState("p2", p2Profile.name, p2Profile.maxHp, p2Profile.maxHp, 0, p2Profile.maxEnergy, p2Profile.maxEnergy, p2Profile),
+            ),
+        )
     }
 
     private fun world(id: String) = WorldState(
