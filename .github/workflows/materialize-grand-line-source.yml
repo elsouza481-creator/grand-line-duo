@@ -52,6 +52,8 @@ jobs:
           required = [
               Path('settings.gradle.kts'),
               Path('app/build.gradle.kts'),
+              Path('core/src/main/kotlin'),
+              Path('core/src/test/kotlin'),
               Path('tools/run-core-tests.sh'),
           ]
           missing = [str(path) for path in required if not path.exists()]
@@ -67,10 +69,10 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add settings.gradle.kts gradle.properties .gitignore ANDROID_BUILD.md SOURCE_SNAPSHOT.md app tools || true
+          git add settings.gradle.kts gradle.properties .gitignore ANDROID_BUILD.md SOURCE_SNAPSHOT.md app core tools || true
           if git diff --cached --quiet; then
             echo "Source tree already materialized"
             exit 0
           fi
-          git commit -m "chore: materialize GRAND LINE DUO source tree"
+          git commit -m "chore: materialize complete GRAND LINE DUO source tree"
           git push origin HEAD:main
