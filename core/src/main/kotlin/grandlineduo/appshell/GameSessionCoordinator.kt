@@ -31,6 +31,8 @@ import grandlineduo.game.ship.VoyageAction
 import grandlineduo.game.ship.VoyageEncounter
 import grandlineduo.game.ship.VoyageIncident
 import grandlineduo.game.ship.VoyageIncidentType
+import grandlineduo.game.world.ExplorationEngine
+import grandlineduo.game.world.ExplorationInteraction
 import grandlineduo.game.world.GrandLineWorldAtlas
 import java.io.Closeable
 import java.net.InetAddress
@@ -196,6 +198,9 @@ class GameSessionCoordinator(private val saveRoot: Path? = null) : Closeable {
         postProcessHostState()
         if (mode == SessionMode.SOLO) recoverSoloCompanionBeforeVoyage()
         val world = worldState()
+        require(ExplorationEngine.interactionAt(world, "p1") == ExplorationInteraction.DOCK) {
+            "P1 must be at the physical dock to set sail"
+        }
         require(world.activeCombat == null && StormglassPersistenceAdapter.decode(world).combat == null) { "Cannot sail during combat" }
         require(world.activeVoyage == null) { "A voyage incident is already active" }
         val scenarioComplete = StormglassPersistenceAdapter.decode(world).scenario.stage == grandlineduo.game.scenario.ScenarioStage.COMPLETE
