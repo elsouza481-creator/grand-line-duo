@@ -47,6 +47,7 @@ import grandlineduo.game.ship.VoyageEngine
 import grandlineduo.game.world.ExplorationDirection
 import grandlineduo.game.world.ExplorationEngine
 import grandlineduo.game.world.ExplorationInteraction
+import grandlineduo.game.world.ExplorationQuestEngine
 
 class StormglassGameplayCommandHandler(
     private val hostReplica: HostReplica,
@@ -228,6 +229,9 @@ class StormglassGameplayCommandHandler(
                 }
                 ExplorationEngine.move(before, command.actorId, direction)
             }
+            "QUEST_ACCEPT" -> ExplorationQuestEngine.accept(before, command.actorId, command.target)
+            "QUEST_PROGRESS" -> ExplorationQuestEngine.progress(before, command.actorId, command.target)
+            "QUEST_TURN_IN" -> ExplorationQuestEngine.turnIn(before, command.actorId, command.target)
             "SHOP_BUY" -> ShopEngine.buy(before, command.actorId, command.target, command.amount)
             "SHOP_SELL" -> ShopEngine.sell(before, command.actorId, command.target, command.amount)
             "SHIP_REPAIR" -> {
