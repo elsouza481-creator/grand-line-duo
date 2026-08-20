@@ -16,6 +16,7 @@ data class ExplorationEnemyProfile(
     val rewardBerries: Long,
     val rewardItemId: String,
     val rewardItemAmount: Int = 1,
+    val rewardMasteryExperience: Int,
     val initialAttackType: EnemyAttackType,
     val respawnSteps: Int,
 )
@@ -30,6 +31,7 @@ object ExplorationEnemyCatalog {
                 attackPower = 5 + d * 2,
                 rewardBerries = 400L + d * 140L,
                 rewardItemId = "ration",
+                rewardMasteryExperience = 10 + d * 2,
                 initialAttackType = EnemyAttackType.HEAVY_STRIKE,
                 respawnSteps = 16 + d,
             )
@@ -39,6 +41,7 @@ object ExplorationEnemyCatalog {
                 attackPower = 7 + d * 2,
                 rewardBerries = 350L + d * 150L,
                 rewardItemId = "bandage",
+                rewardMasteryExperience = 9 + d * 2,
                 initialAttackType = EnemyAttackType.SWEEP,
                 respawnSteps = 12 + d,
             )
@@ -48,6 +51,7 @@ object ExplorationEnemyCatalog {
                 attackPower = 9 + d * 3,
                 rewardBerries = 450L + d * 160L,
                 rewardItemId = "energy_tonic",
+                rewardMasteryExperience = 11 + d * 2,
                 initialAttackType = EnemyAttackType.HEAVY_STRIKE,
                 respawnSteps = 14 + d,
             )
@@ -57,6 +61,7 @@ object ExplorationEnemyCatalog {
                 attackPower = 8 + d * 2,
                 rewardBerries = 550L + d * 180L,
                 rewardItemId = if (d >= 8) "kairouseki_shard" else "energy_tonic",
+                rewardMasteryExperience = 14 + d * 3,
                 initialAttackType = EnemyAttackType.SWEEP,
                 respawnSteps = 20 + d,
             )
