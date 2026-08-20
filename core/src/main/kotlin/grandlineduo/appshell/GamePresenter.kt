@@ -13,6 +13,8 @@ import grandlineduo.game.world.ExplorationDirection
 import grandlineduo.game.world.ExplorationEngine
 import grandlineduo.game.world.ExplorationInteraction
 import grandlineduo.game.world.ExplorationMap
+import grandlineduo.game.world.ExplorationQuestEngine
+import grandlineduo.game.world.ExplorationQuestStatus
 import grandlineduo.game.world.GridPosition
 import grandlineduo.game.world.GrandLineWorldAtlas
 
@@ -34,6 +36,7 @@ data class ExplorationPresentation(
     val map: ExplorationMap,
     val playerPosition: GridPosition,
     val interaction: ExplorationInteraction?,
+    val visibleQuestObjectives: Set<GridPosition> = emptySet(),
 )
 
 data class GamePresentation(
@@ -161,11 +164,36 @@ object GamePresenter {
         val map = ExplorationEngine.mapFor(world.campaignId, world.islandId)
         val playerPosition = ExplorationEngine.position(world, actorId)
         val interaction = ExplorationEngine.interactionAt(world, actorId)
+        val npc = map.npcs[playerPosition]
+        val objective = map.questObjectives[playerPosition]
+        val questId = npc?.questId ?: objective?.questId
+        val questStatus = questId?.let { ExplorationQuestEngine.status(world, actorId, it) }
+        val activeQuestObjectives = map.questObjectives.values
+            .filter { ExplorationQuestEngine.status(world, actorId, it.questId) == ExplorationQuestStatus.ACTIVE }
+            .map { it.position }
+            .toSet()
+
         val actions = buildList {
             ExplorationDirection.entries.forEach { direction ->
                 add(GameAction(direction.name, explorationLabel(direction), "EXPLORE_MOVE"))
             }
             add(GameAction("INVENTORY", "Inventário e equipamento", "MENU"))
+
+            if (npc?.questId != null) {
+                when (ExplorationQuestEngine.status(world, actorId, npc.questId)) {
+                    ExplorationQuestStatus.AVAILABLE -> add(
+                        GameAction(npc.questId, "Aceitar missão de ${npc.name}", "QUEST_ACCEPT")
+                    )
+                    ExplorationQuestStatus.OBJECTIVE_COMPLETE -> add(
+                        GameAction(npc.questId, "Entregar missão a ${npc.name}", "QUEST_TURN_IN")
+                    )
+                    ExplorationQuestStatus.ACTIVE, ExplorationQuestStatus.TURNED_IN -> Unit
+                }
+            }
+            if (objective != null && ExplorationQuestEngine.status(world, actorId, objective.questId) == ExplorationQuestStatus.ACTIVE) {
+                add(GameAction(objective.questId, "Investigar: ${objective.label}", "QUEST_PROGRESS"))
+            }
+
             when (interaction) {
                 ExplorationInteraction.MARKET -> add(GameAction("SHOP", "Entrar no mercado", "MENU"))
                 ExplorationInteraction.TRAINING -> add(GameAction("TRAINING", "Treinar nesta área", "MENU"))
@@ -189,21 +217,35 @@ object GamePresenter {
             }
         }
         val island = GrandLineWorldAtlas.describe(world.campaignId, world.islandId)
-        val contextualBody = when (interaction) {
-            ExplorationInteraction.DOCK -> "$body\nVocê está no cais."
-            ExplorationInteraction.MARKET -> "$body\nBancas e mercadores cercam você."
-            ExplorationInteraction.TRAINING -> "$body\nEsta área foi preparada para treino."
-            ExplorationInteraction.SHIP -> "$body\nSeu navio está atracado aqui."
-            ExplorationInteraction.CREW -> "$body\nA tripulação se reúne neste ponto."
-            null -> body
+        val physicalContext = when {
+            npc != null -> when (questStatus) {
+                ExplorationQuestStatus.AVAILABLE -> "${npc.name}, ${npc.title}: ${npc.dialogue}"
+                ExplorationQuestStatus.ACTIVE -> "${npc.name}: A caixa está na estrada leste. Volte quando encontrá-la."
+                ExplorationQuestStatus.OBJECTIVE_COMPLETE -> "${npc.name}: Você encontrou? Traga a caixa para mim."
+                ExplorationQuestStatus.TURNED_IN -> "${npc.name}: Bom trabalho. A recompensa é sua."
+                null -> "${npc.name}, ${npc.title}."
+            }
+            objective != null && questStatus == ExplorationQuestStatus.ACTIVE -> "Você encontrou ${objective.label}. Examine o local para cumprir o objetivo."
+            interaction == ExplorationInteraction.DOCK -> "Você está no cais."
+            interaction == ExplorationInteraction.MARKET -> "Bancas e mercadores cercam você."
+            interaction == ExplorationInteraction.TRAINING -> "Esta área foi preparada para treino."
+            interaction == ExplorationInteraction.SHIP -> "Seu navio está atracado aqui."
+            interaction == ExplorationInteraction.CREW -> "A tripulação se reúne neste ponto."
+            else -> null
         }
+        val contextualBody = if (physicalContext == null) body else "$body\n$physicalContext"
         return GamePresentation(
             screen = GameScreen.HUB,
             title = "${world.shipState?.name ?: "Tripulação"} • ${island.name}",
             body = contextualBody,
             status = statusFor(world, actorId),
             actions = actions,
-            exploration = ExplorationPresentation(map, playerPosition, interaction),
+            exploration = ExplorationPresentation(
+                map = map,
+                playerPosition = playerPosition,
+                interaction = interaction,
+                visibleQuestObjectives = activeQuestObjectives,
+            ),
         )
     }
 
