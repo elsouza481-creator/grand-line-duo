@@ -44,6 +44,8 @@ import grandlineduo.game.ship.ShipEngine
 import grandlineduo.game.ship.ShipUpgrade
 import grandlineduo.game.ship.VoyageAction
 import grandlineduo.game.ship.VoyageEngine
+import grandlineduo.game.world.ExplorationDirection
+import grandlineduo.game.world.ExplorationEngine
 
 class StormglassGameplayCommandHandler(
     private val hostReplica: HostReplica,
@@ -213,6 +215,14 @@ class StormglassGameplayCommandHandler(
         }
         require(before.activeVoyage == null) { "World management is unavailable during a voyage incident" }
         val nextWorld = when (command.actionType.uppercase()) {
+            "EXPLORE_MOVE" -> {
+                val direction = try {
+                    ExplorationDirection.valueOf(command.target.uppercase())
+                } catch (_: IllegalArgumentException) {
+                    throw IllegalArgumentException("Unknown exploration direction ${command.target}")
+                }
+                ExplorationEngine.move(before, command.actorId, direction)
+            }
             "SHOP_BUY" -> ShopEngine.buy(before, command.actorId, command.target, command.amount)
             "SHOP_SELL" -> ShopEngine.sell(before, command.actorId, command.target, command.amount)
             "SHIP_REPAIR" -> {
