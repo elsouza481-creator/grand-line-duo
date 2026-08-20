@@ -76,7 +76,9 @@ object StormglassPersistenceAdapter {
         )
 
         val combat = if (flags["sg.combat"] == "1") {
-            val combatPlayers = world.players.mapValues { (playerId, player) ->
+            val combatPlayers = listOf("p1", "p2").associateWith { playerId ->
+                val player = world.players[playerId]
+                    ?: throw IllegalArgumentException("Legacy combat player $playerId missing from world state")
                 Combatant(playerId, player.name, player.hp, player.maxHp)
             }
             val actions = combatPlayers.keys.mapNotNull { playerId ->
