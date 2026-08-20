@@ -2,8 +2,11 @@ package grandlineduo.game.world
 
 import grandlineduo.core.model.PlayerState
 import grandlineduo.core.model.WorldState
+import grandlineduo.core.network.ClientReplica
 import grandlineduo.core.network.GameplayWireCommand
 import grandlineduo.core.network.HostReplica
+import grandlineduo.core.network.LanClientConnection
+import grandlineduo.core.network.LanHostServer
 import grandlineduo.game.InventoryEngine
 import grandlineduo.game.network.StormglassGameplayCommandHandler
 import grandlineduo.test.assertEquals
@@ -12,15 +15,7 @@ import grandlineduo.test.test
 object ExplorationQuestCommandIntegrationTest {
     fun register() {
         test("authoritative world commands complete a physical quest and reward exactly once") {
-            var initial = WorldState(
-                campaignId = "quest-command",
-                islandId = "stormglass-cay",
-                partyBerries = 2_000,
-                players = mapOf(
-                    "p1" to PlayerState("p1", "A", 30, 30, 0),
-                    "p2" to PlayerState("p2", "B", 30, 30, 0),
-                ),
-            )
+            var initial = world("quest-command")
             val map = ExplorationEngine.mapFor(initial.campaignId, initial.islandId)
             val npc = map.npcs.values.single { it.questId != null }
             val questId = npc.questId!!
@@ -55,5 +50,56 @@ object ExplorationQuestCommandIntegrationTest {
             assertEquals(berriesBefore + ExplorationQuestEngine.REWARD_BERRIES, host.state.partyBerries)
             assertEquals(1, InventoryEngine.read(host.state, "p1").items[ExplorationQuestEngine.REWARD_ITEM_ID])
         }
+
+        test("P2 completes physical quest over real TCP and converges with host") {
+            var initial = world("quest-lan")
+            val map = ExplorationEngine.mapFor(initial.campaignId, initial.islandId)
+            val npc = map.npcs.values.single { it.questId != null }
+            val questId = npc.questId!!
+            val objective = map.questObjectives.values.single { it.questId == questId }
+            initial = ExplorationEngine.place(initial, "p2", npc.position)
+            val host = HostReplica(initial)
+            val handler = StormglassGameplayCommandHandler(host, seed = 42)
+            val clientReplica = ClientReplica(initial)
+
+            LanHostServer(host, port = 0, gameplayCommandHandler = handler).use { server ->
+                server.start()
+                LanClientConnection("127.0.0.1", server.boundPort, "p2", clientReplica).use { client ->
+                    client.connect()
+                    client.sendGameplay(GameplayWireCommand.WorldAction("p2-quest-accept", "p2", "QUEST_ACCEPT", questId, 999))
+                    assertEquals(host.state, clientReplica.state)
+
+                    var sequence = 0
+                    while (ExplorationEngine.position(clientReplica.state, "p2") != objective.position) {
+                        val current = ExplorationEngine.position(clientReplica.state, "p2")
+                        val direction = if (current.x < objective.position.x) ExplorationDirection.EAST else ExplorationDirection.WEST
+                        client.sendGameplay(GameplayWireCommand.WorldAction("p2-quest-out-${sequence++}", "p2", "EXPLORE_MOVE", direction.name, 999))
+                    }
+                    client.sendGameplay(GameplayWireCommand.WorldAction("p2-quest-progress", "p2", "QUEST_PROGRESS", questId, 999))
+                    assertEquals(ExplorationQuestStatus.OBJECTIVE_COMPLETE, ExplorationQuestEngine.status(clientReplica.state, "p2", questId))
+
+                    while (ExplorationEngine.position(clientReplica.state, "p2") != npc.position) {
+                        val current = ExplorationEngine.position(clientReplica.state, "p2")
+                        val direction = if (current.x < npc.position.x) ExplorationDirection.EAST else ExplorationDirection.WEST
+                        client.sendGameplay(GameplayWireCommand.WorldAction("p2-quest-back-${sequence++}", "p2", "EXPLORE_MOVE", direction.name, 999))
+                    }
+                    client.sendGameplay(GameplayWireCommand.WorldAction("p2-quest-turn-in", "p2", "QUEST_TURN_IN", questId, 999))
+
+                    assertEquals(host.state, clientReplica.state)
+                    assertEquals(ExplorationQuestStatus.TURNED_IN, ExplorationQuestEngine.status(host.state, "p2", questId))
+                    assertEquals(ExplorationQuestStatus.AVAILABLE, ExplorationQuestEngine.status(host.state, "p1", questId))
+                }
+            }
+        }
     }
+
+    private fun world(campaignId: String) = WorldState(
+        campaignId = campaignId,
+        islandId = "stormglass-cay",
+        partyBerries = 2_000,
+        players = mapOf(
+            "p1" to PlayerState("p1", "A", 30, 30, 0),
+            "p2" to PlayerState("p2", "B", 30, 30, 0),
+        ),
+    )
 }
