@@ -1,5 +1,6 @@
 package grandlineduo.appshell
 
+import grandlineduo.core.network.LanDiscoveryListener
 import grandlineduo.game.character.Attribute
 import grandlineduo.game.character.CharacterDraft
 import grandlineduo.game.character.Skill
@@ -8,7 +9,11 @@ import grandlineduo.game.StormglassPersistenceAdapter
 import grandlineduo.test.assertEquals
 import grandlineduo.test.assertTrue
 import grandlineduo.test.test
+import java.net.DatagramSocket
+import java.net.InetAddress
 import java.nio.file.Files
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 object GameSessionCoordinatorTest {
     fun register() {
@@ -36,6 +41,37 @@ object GameSessionCoordinatorTest {
                 assertEquals(null, session.worldState().players.getValue("p2").profile)
                 assertEquals(SessionMode.HOST_COOP, session.mode)
                 assertTrue(session.boundPort > 0)
+            }
+        }
+
+        test("host assigns p2 p3 p4 to joining coordinators and advertises live four player occupancy") {
+            val host = GameSessionCoordinator()
+            val p2 = GameSessionCoordinator()
+            val p3 = GameSessionCoordinator()
+            val p4 = GameSessionCoordinator()
+            try {
+                host.startHost("Four Player Host", campaignId = "coord-four-player")
+                joinViaDiscovery(host, p2, freeUdpPort())
+                joinViaDiscovery(host, p3, freeUdpPort())
+                joinViaDiscovery(host, p4, freeUdpPort())
+
+                assertEquals("p2", p2.actorId)
+                assertEquals("p3", p3.actorId)
+                assertEquals("p4", p4.actorId)
+
+                val discoveryPort = freeUdpPort()
+                LanDiscoveryListener(bindAddress = "127.0.0.1", port = discoveryPort).use { listener ->
+                    listener.start()
+                    host.advertiseOnce(InetAddress.getByName("127.0.0.1"), discoveryPort)
+                    val ad = listener.receive(1_000)?.advertisement ?: error("host advertisement not received")
+                    assertEquals(4, ad.currentPlayers)
+                    assertEquals(4, ad.maxPlayers)
+                }
+            } finally {
+                p4.close()
+                p3.close()
+                p2.close()
+                host.close()
             }
         }
 
@@ -71,6 +107,26 @@ object GameSessionCoordinatorTest {
             }
         }
     }
+
+    private fun joinViaDiscovery(host: GameSessionCoordinator, client: GameSessionCoordinator, discoveryPort: Int) {
+        val executor = Executors.newSingleThreadExecutor()
+        try {
+            val future = executor.submit {
+                client.discoverAndJoin(
+                    timeoutMillis = 2_000,
+                    bindAddress = "127.0.0.1",
+                    discoveryPort = discoveryPort,
+                )
+            }
+            Thread.sleep(100)
+            host.advertiseOnce(InetAddress.getByName("127.0.0.1"), discoveryPort)
+            future.get(3, TimeUnit.SECONDS)
+        } finally {
+            executor.shutdownNow()
+        }
+    }
+
+    private fun freeUdpPort(): Int = DatagramSocket(0).use { it.localPort }
 
     fun validDraft(name: String): CharacterDraft = CharacterDraft(
         name = name,
