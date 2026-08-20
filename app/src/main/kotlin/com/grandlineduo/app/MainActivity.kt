@@ -24,6 +24,7 @@ class MainActivity : Activity() {
     private var syncTask: ScheduledFuture<*>? = null
     private var currentOverlay: String? = null
     private var gameplayView: GameplayScreen? = null
+    private var explorationView: ExplorationScreen? = null
     private var characterView: CharacterCreationScreen? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -38,6 +39,7 @@ class MainActivity : Activity() {
         stopSync()
         currentOverlay = null
         gameplayView = null
+        explorationView = null
         characterView = null
         val home = HomeScreen(this).apply {
             onSolo = { startSolo() }
@@ -116,17 +118,32 @@ class MainActivity : Activity() {
                 onBack = { resetToHome() }
             }
             gameplayView = null
+            explorationView = null
             characterView = creator
             setContentView(creator)
             return
         }
         characterView = null
+
+        if (model.exploration != null) {
+            gameplayView = null
+            val view = explorationView ?: ExplorationScreen(this).also {
+                explorationView = it
+                it.onAction = { action -> dispatch(action) }
+                it.onHome = { resetToHome() }
+            }
+            setContentView(view)
+            view.render(model)
+            return
+        }
+
+        explorationView = null
         val view = gameplayView ?: GameplayScreen(this).also {
             gameplayView = it
             it.onAction = { action -> dispatch(action) }
             it.onHome = { resetToHome() }
-            setContentView(it)
         }
+        setContentView(view)
         view.render(model)
     }
 
@@ -144,6 +161,7 @@ class MainActivity : Activity() {
                     "COMBAT" -> coordinator.submitCombatAction(CombatActionType.valueOf(action.id))
                     "POWER" -> coordinator.submitPowerAction(action.id)
                     "VOYAGE" -> coordinator.submitVoyageAction(VoyageAction.valueOf(action.id))
+                    "EXPLORE_MOVE" -> coordinator.submitWorldAction("EXPLORE_MOVE", action.id, 1)
                     "CAMPAIGN" -> coordinator.advanceCampaign(action.id)
                     else -> throw IllegalArgumentException("Ação não suportada: ${action.kind}")
                 }
@@ -232,6 +250,7 @@ class MainActivity : Activity() {
     private fun closeOverlay() {
         currentOverlay = null
         gameplayView = null
+        explorationView = null
         renderWorld()
     }
 
