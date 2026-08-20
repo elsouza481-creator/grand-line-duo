@@ -1,6 +1,7 @@
 package grandlineduo.game
 
 import grandlineduo.core.model.WorldState
+import grandlineduo.game.character.ClassMasteryMedicalResolver
 
 enum class ItemType { WEAPON, ARMOR, CHARM, CONSUMABLE, MATERIAL, KEY }
 enum class EquipmentSlot { WEAPON, ARMOR, CHARM }
@@ -110,8 +111,9 @@ object InventoryEngine {
         val item = ItemCatalog.get(itemId)
         require(item.type == ItemType.CONSUMABLE) { "${item.name} is not consumable" }
         val player = world.players.getValue(playerId)
+        val healingBonus = ClassMasteryMedicalResolver.healingBonus(player.profile, item.healHp)
         val updated = player.copy(
-            hp = (player.hp + item.healHp).coerceAtMost(player.maxHp),
+            hp = (player.hp + item.healHp + healingBonus).coerceAtMost(player.maxHp),
             energy = (player.energy + item.restoreEnergy).coerceAtMost(player.maxEnergy),
         )
         val flags = world.worldFlags.toMutableMap()
