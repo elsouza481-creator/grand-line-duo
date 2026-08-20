@@ -2,6 +2,7 @@ package grandlineduo.game.world
 
 import grandlineduo.core.model.WorldState
 import grandlineduo.game.InventoryEngine
+import grandlineduo.game.character.ClassMasteryEngine
 import grandlineduo.game.combat.CombatStatus
 import grandlineduo.game.combat.CombatState
 import grandlineduo.game.combat.Combatant
@@ -119,6 +120,22 @@ object ExplorationCombatEngine {
             .filter { it.hp > 0 && it.id in rewarded.players }
             .sortedBy { it.id }
             .forEach { fighter ->
+                val player = rewarded.players.getValue(fighter.id)
+                val profile = player.profile
+                val mastery = profile?.classMastery
+                if (profile != null && mastery != null) {
+                    val primary = mastery.primaryClass
+                    val progressed = ClassMasteryEngine.train(
+                        mastery,
+                        primary,
+                        enemy.rewardMasteryExperience.toLong(),
+                    )
+                    rewarded = rewarded.copy(
+                        players = rewarded.players + (
+                            fighter.id to player.copy(profile = profile.copy(classMastery = progressed))
+                        ),
+                    )
+                }
                 rewarded = InventoryEngine.grant(
                     rewarded,
                     fighter.id,
