@@ -6,6 +6,8 @@ import grandlineduo.game.InventoryEngine
 import grandlineduo.game.character.CharacterCreation
 import grandlineduo.game.character.CharacterCreationResult
 import grandlineduo.game.character.CharacterCreationTest
+import grandlineduo.game.character.ClassMasteryState
+import grandlineduo.game.character.ClassPath
 import grandlineduo.game.powers.DevilFruitCategory
 import grandlineduo.game.powers.DevilFruitState
 import grandlineduo.game.powers.HakiDiscipline
@@ -42,5 +44,88 @@ object CombatModifierResolverTest {
             assertEquals(8, suppressed.attackBonus)
             assertEquals(3, suppressed.damageReduction)
         }
+
+        test("swordsman primary mastery adds milestone attack bonus") {
+            val modifier = modifierFor(
+                ClassMasteryState(
+                    primaryClass = ClassPath.SWORDSMAN,
+                    levels = mapOf(ClassPath.SWORDSMAN to 25),
+                ),
+            )
+
+            assertEquals(3, modifier.attackBonus)
+            assertEquals(0, modifier.damageReduction)
+        }
+
+        test("brawler primary mastery adds offense and close combat resilience") {
+            val modifier = modifierFor(
+                ClassMasteryState(
+                    primaryClass = ClassPath.BRAWLER,
+                    levels = mapOf(ClassPath.BRAWLER to 25),
+                ),
+            )
+
+            assertEquals(3, modifier.attackBonus)
+            assertEquals(2, modifier.damageReduction)
+        }
+
+        test("utility primary classes do not receive generic combat damage") {
+            val modifier = modifierFor(
+                ClassMasteryState(
+                    primaryClass = ClassPath.NAVIGATOR,
+                    levels = mapOf(ClassPath.NAVIGATOR to 100),
+                ),
+            )
+
+            assertEquals(0, modifier.attackBonus)
+            assertEquals(0, modifier.damageReduction)
+        }
+
+        test("secondary combat mastery does not replace the primary class combat identity") {
+            val modifier = modifierFor(
+                ClassMasteryState(
+                    primaryClass = ClassPath.NAVIGATOR,
+                    levels = mapOf(
+                        ClassPath.NAVIGATOR to 20,
+                        ClassPath.SWORDSMAN to 50,
+                    ),
+                ),
+            )
+
+            assertEquals(0, modifier.attackBonus)
+            assertEquals(0, modifier.damageReduction)
+        }
+
+        test("combat mastery keeps scaling slowly beyond master milestone") {
+            val modifier = modifierFor(
+                ClassMasteryState(
+                    primaryClass = ClassPath.SWORDSMAN,
+                    levels = mapOf(ClassPath.SWORDSMAN to 1000),
+                ),
+            )
+
+            assertEquals(23, modifier.attackBonus)
+        }
+    }
+
+    private fun modifierFor(mastery: ClassMasteryState): CombatModifiers {
+        val base = (CharacterCreation.create(CharacterCreationTest.validDraft()) as CharacterCreationResult.Success).profile
+        val profile = base.copy(classMastery = mastery)
+        val world = WorldState(
+            campaignId = "class-combat",
+            players = mapOf(
+                "p1" to PlayerState(
+                    playerId = "p1",
+                    name = profile.name,
+                    hp = profile.maxHp,
+                    maxHp = profile.maxHp,
+                    bounty = 0,
+                    energy = profile.maxEnergy,
+                    maxEnergy = profile.maxEnergy,
+                    profile = profile,
+                ),
+            ),
+        )
+        return CombatModifierResolver.forWorld(world).getValue("p1")
     }
 }
