@@ -68,6 +68,7 @@ data class ExplorationEnemy(
     val rewardBerries: Long,
     val rewardItemId: String,
     val rewardItemAmount: Int,
+    val rewardMasteryExperience: Int,
     val initialAttackType: EnemyAttackType,
     val respawnSteps: Int,
 )
@@ -187,6 +188,7 @@ object ExplorationEngine {
                 rewardBerries = profile.rewardBerries,
                 rewardItemId = profile.rewardItemId,
                 rewardItemAmount = profile.rewardItemAmount,
+                rewardMasteryExperience = profile.rewardMasteryExperience,
                 initialAttackType = profile.initialAttackType,
                 respawnSteps = profile.respawnSteps,
             )
