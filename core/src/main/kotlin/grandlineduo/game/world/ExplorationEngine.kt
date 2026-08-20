@@ -60,6 +60,7 @@ data class ExplorationPickup(
 data class ExplorationEnemy(
     val id: String,
     val name: String,
+    val archetype: ExplorationEnemyArchetype,
     val position: GridPosition,
     val maxHp: Int,
     val attackPower: Int,
@@ -90,12 +91,6 @@ object ExplorationEngine {
     private const val HEIGHT = 18
     private val SPAWN = GridPosition(WIDTH / 2, HEIGHT / 2)
     private val QUEST_GIVER_NAMES = listOf("Iria", "Bram", "Noa", "Tess", "Kellan", "Suri")
-    private val HOSTILE_NAMES = listOf(
-        "Bando do Quebra-Mar",
-        "Caçadores da Maré",
-        "Saqueadores do Cais",
-        "Rufiões da Rota",
-    )
 
     fun mapFor(campaignId: String, islandId: String): ExplorationMap {
         require(campaignId.isNotBlank()) { "Campaign id is required" }
@@ -175,18 +170,20 @@ object ExplorationEngine {
         )
 
         // One free-roam hostile sits farther east on the guaranteed road, outside the quest objective.
-        // Its combat stats come only from deterministic island danger; clients never supply them.
+        // Its archetype is deterministic for this campaign/island and every profile scales from island danger.
         val danger = GrandLineWorldAtlas.describe(campaignId, islandId).danger.coerceIn(1, 10)
         val enemyPosition = GridPosition(SPAWN.x + 7, SPAWN.y)
         tiles[enemyPosition] = ExplorationTile.ROAD
-        val enemyName = HOSTILE_NAMES[((mapSeed xor (mapSeed ushr 29)).toInt() and Int.MAX_VALUE) % HOSTILE_NAMES.size]
+        val archetype = ExplorationEnemyCatalog.select(campaignId, islandId)
+        val profile = ExplorationEnemyCatalog.profile(archetype, danger)
         val enemy = ExplorationEnemy(
             id = "road-hostile-$islandId",
-            name = enemyName,
+            name = profile.name,
+            archetype = archetype,
             position = enemyPosition,
-            maxHp = 30 + danger * 8,
-            attackPower = 5 + danger * 2,
-            rewardBerries = 300L + danger * 125L,
+            maxHp = profile.maxHp,
+            attackPower = profile.attackPower,
+            rewardBerries = profile.rewardBerries,
         )
 
         return ExplorationMap(
