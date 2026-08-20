@@ -35,7 +35,6 @@ object ShipPersistenceTest {
             assertNotEquals(CanonicalStateHasher.hash(base), CanonicalStateHasher.hash(withShip))
         }
 
-
         test("one-player-locked voyage state survives snapshot round trip") {
             val incident = VoyageIncident(VoyageIncidentType.STORM, 3, 4242)
             val active = VoyageEngine.lockAction(VoyageEncounter(incident), "p1", VoyageAction.HELM)
@@ -45,6 +44,32 @@ object ShipPersistenceTest {
             )
             val restored = WorldStateCodec.decode(WorldStateCodec.encode(state))
             assertEquals(active, restored.activeVoyage)
+            assertEquals(state, restored)
+        }
+
+        test("four-player voyage participants and locked actions survive current snapshot round trip") {
+            val incident = VoyageIncident(VoyageIncidentType.PIRATE_AMBUSH, 4, 8088)
+            var active = VoyageEncounter(
+                incident = incident,
+                participants = setOf("p1", "p2", "p3", "p4"),
+            )
+            active = VoyageEngine.lockAction(active, "p1", VoyageAction.HELM)
+            active = VoyageEngine.lockAction(active, "p3", VoyageAction.CANNONS)
+            active = VoyageEngine.lockAction(active, "p4", VoyageAction.REPAIR)
+            val state = legacyWorld().copy(
+                shipState = ShipEngine.starterShip("black-gull", "Black Gull"),
+                activeVoyage = active,
+                players = mapOf(
+                    "p1" to PlayerState("p1", "Kairo", 20, 20, 1000, 9, 10),
+                    "p2" to PlayerState("p2", "Mira", 20, 20, 0, 10, 10),
+                    "p3" to PlayerState("p3", "Rika", 20, 20, 0, 10, 10),
+                    "p4" to PlayerState("p4", "Bram", 20, 20, 0, 10, 10),
+                ),
+            )
+
+            val restored = WorldStateCodec.decode(WorldStateCodec.encode(state))
+            assertEquals(setOf("p1", "p2", "p3", "p4"), restored.activeVoyage?.participants)
+            assertEquals(active.actions, restored.activeVoyage?.actions)
             assertEquals(state, restored)
         }
 
