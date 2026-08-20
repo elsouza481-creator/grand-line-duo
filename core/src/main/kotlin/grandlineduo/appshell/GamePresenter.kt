@@ -236,7 +236,7 @@ object GamePresenter {
                 null -> "${npc.name}, ${npc.title}."
             }
             objective != null && questStatus == ExplorationQuestStatus.ACTIVE -> "Você encontrou ${objective.label}. Examine o local para cumprir o objetivo."
-            pickup != null -> "Você encontrou um cache abandonado. Colete antes que outra tripulação chegue."
+            pickup != null -> "Você encontrou ${pickup.label}. Colete antes que outra tripulação chegue."
             interaction == ExplorationInteraction.DOCK -> "Você está no cais."
             interaction == ExplorationInteraction.MARKET -> "Bancas e mercadores cercam você."
             interaction == ExplorationInteraction.TRAINING -> "Esta área foi preparada para treino."
