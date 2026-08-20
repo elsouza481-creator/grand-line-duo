@@ -30,6 +30,10 @@ object ExplorationCombatEngine {
         return remaining.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
     }
 
+    fun hasClaimedFirstClear(world: WorldState, enemyId: String): Boolean =
+        world.worldFlags[firstClearKey(world.islandId, enemyId)] == "true" ||
+            world.worldFlags[defeatedKey(world.islandId, enemyId)] == "true"
+
     fun isActive(world: WorldState): Boolean {
         val enemyId = world.worldFlags[activeKey(world.islandId)] ?: return false
         return world.activeCombat?.enemy?.id == enemyId
@@ -101,11 +105,8 @@ object ExplorationCombatEngine {
             return world.copy(players = syncedPlayers, activeCombat = null, worldFlags = clearedFlags)
         }
 
-        val defeatedBefore = world.worldFlags[defeatedKey(world.islandId, enemy.id)] == "true"
-        val firstClearAlreadyClaimed = world.worldFlags[firstClearKey(world.islandId, enemy.id)] == "true"
         val firstFieldBossClear = enemy.rank == ExplorationEnemyRank.FIELD_BOSS &&
-            !defeatedBefore &&
-            !firstClearAlreadyClaimed
+            !hasClaimedFirstClear(world, enemy.id)
         val rewardMultiplier = if (firstFieldBossClear) 2L else 1L
 
         val currentSteps = ExplorationEngine.explorationSteps(world)
