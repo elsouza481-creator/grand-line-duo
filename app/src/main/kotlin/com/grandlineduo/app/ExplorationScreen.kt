@@ -41,6 +41,7 @@ private object WorldUiColors {
     const val NPC = 0xFF6FD3C8L
     const val QUEST = 0xFFFF8F4EL
     const val LOOT = 0xFFF1B84BL
+    const val ENEMY = 0xFFD76757L
 }
 
 class ExplorationScreen(context: Context) : ScrollView(context) {
@@ -142,7 +143,7 @@ class ExplorationScreen(context: Context) : ScrollView(context) {
         ExplorationInteraction.TRAINING -> "✦ Área de treino — progressão disponível aqui"
         ExplorationInteraction.SHIP -> "▰ Navio — manutenção e melhorias disponíveis"
         ExplorationInteraction.CREW -> "● Tripulação — gestão dos companheiros"
-        null -> "Caminhe pelas ruas. NPCs têm !, objetivos ativos ? e caches aparecem como ◆."
+        null -> "Caminhe pelas ruas. NPCs têm !, objetivos ativos ?, caches ◆ e inimigos hostis X."
     }
 
     private fun actionButton(label: String, click: () -> Unit) = Button(context).apply {
@@ -192,7 +193,8 @@ private class ExplorationMapView(context: Context) : View(context) {
         val npcCount = presentation.map.npcs.size
         val activeObjectives = presentation.visibleQuestObjectives.size
         val visiblePickups = presentation.visiblePickups.size
-        contentDescription = "Mapa da ilha. Posição ${presentation.playerPosition.x}, ${presentation.playerPosition.y}. $npcCount NPC. $activeObjectives objetivo ativo. $visiblePickups cache disponível."
+        val visibleEnemies = presentation.visibleEnemies.size
+        contentDescription = "Mapa da ilha. Posição ${presentation.playerPosition.x}, ${presentation.playerPosition.y}. $npcCount NPC. $activeObjectives objetivo ativo. $visiblePickups cache disponível. $visibleEnemies inimigo hostil."
         invalidate()
     }
 
@@ -257,6 +259,15 @@ private class ExplorationMapView(context: Context) : View(context) {
                 marker.textSize = size * 0.24f
                 val baseline = rect.bottom - size * 0.22f - (marker.ascent() + marker.descent()) / 2f
                 canvas.drawText("◆", rect.right - size * 0.22f, baseline, marker)
+            }
+
+            if (cell.position in model.visibleEnemies) {
+                fill.color = WorldUiColors.ENEMY.toInt()
+                canvas.drawCircle(rect.left + size * 0.22f, rect.bottom - size * 0.22f, size * 0.18f, fill)
+                marker.color = Color.WHITE
+                marker.textSize = size * 0.26f
+                val baseline = rect.bottom - size * 0.22f - (marker.ascent() + marker.descent()) / 2f
+                canvas.drawText("X", rect.left + size * 0.22f, baseline, marker)
             }
 
             model.map.npcs[cell.position]?.let {
