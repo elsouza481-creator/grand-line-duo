@@ -15,6 +15,7 @@ import android.widget.Spinner
 import android.widget.TextView
 import grandlineduo.appshell.CharacterBuildPreset
 import grandlineduo.appshell.CharacterPresetFactory
+import grandlineduo.appshell.ClassPathDisplay
 import grandlineduo.appshell.GameAction
 import grandlineduo.appshell.GamePresentation
 import grandlineduo.game.InventoryEngine
@@ -23,6 +24,8 @@ import grandlineduo.game.ItemType
 import grandlineduo.game.EquipmentSlot
 import grandlineduo.core.model.WorldState
 import grandlineduo.game.character.Attribute
+import grandlineduo.game.character.ClassMasteryEngine
+import grandlineduo.game.character.ClassPath
 import grandlineduo.game.character.Skill
 import grandlineduo.game.powers.HakiType
 
@@ -610,6 +613,59 @@ class TrainingScreen(context: Context) : ScrollView(context) {
             setTextColor(Palette.MUTED)
             setPadding(0, context.dp(8), 0, context.dp(8))
         })
+
+        root.sectionTitle("CLASSE E MAESTRIA")
+        val classPaths = ClassPath.entries
+        val classMastery = profile.classMastery
+        if (classMastery == null) {
+            root.addView(TextView(context).apply {
+                text = "Este personagem veio de um save antigo e ainda não possui classe primária. A escolha abaixo é permanente."
+                baseText(13f)
+                setTextColor(Palette.MUTED)
+                setBackgroundColor(Palette.PANEL)
+                setPadding(context.dp(12), context.dp(10), context.dp(12), context.dp(10))
+            })
+            val classSpinner = Spinner(context).apply {
+                adapter = ArrayAdapter(context, android.R.layout.simple_spinner_dropdown_item, classPaths.map(ClassPathDisplay::label))
+                setBackgroundColor(Palette.PANEL_2)
+            }
+            root.addView(classSpinner, LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, context.dp(48)).apply { topMargin = context.dp(8) })
+            root.actionButton("Escolher classe primária") {
+                val path = classPaths[classSpinner.selectedItemPosition.coerceIn(classPaths.indices)]
+                onWorldAction?.invoke("CHOOSE_CLASS", path.name, 1)
+            }
+        } else {
+            val primary = classMastery.primaryClass
+            val perks = ClassMasteryEngine.unlockedPerks(classMastery, primary)
+            root.addView(TextView(context).apply {
+                text = buildString {
+                    append(ClassPathDisplay.primaryProgress(classMastery))
+                    if (perks.isNotEmpty()) append("\nMarcos: ").append(perks.joinToString(" • "))
+                    append("\nA classe primária não muda. Outras classes podem ser treinadas como maestrias secundárias.")
+                }
+                baseText(13f)
+                setTextColor(Palette.MUTED)
+                setBackgroundColor(Palette.PANEL)
+                setPadding(context.dp(12), context.dp(10), context.dp(12), context.dp(10))
+            })
+            val classSpinner = Spinner(context).apply {
+                adapter = ArrayAdapter(
+                    context,
+                    android.R.layout.simple_spinner_dropdown_item,
+                    classPaths.map { path ->
+                        val primaryMark = if (path == primary) " • PRIMÁRIA" else ""
+                        "${ClassPathDisplay.progress(classMastery, path)}$primaryMark"
+                    },
+                )
+                setBackgroundColor(Palette.PANEL_2)
+            }
+            classSpinner.setSelection(classPaths.indexOf(primary).coerceAtLeast(0))
+            root.addView(classSpinner, LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, context.dp(48)).apply { topMargin = context.dp(8) })
+            root.actionButton("Treinar classe selecionada • +25 XP") {
+                val path = classPaths[classSpinner.selectedItemPosition.coerceIn(classPaths.indices)]
+                onWorldAction?.invoke("TRAIN_CLASS", path.name, 1)
+            }
+        }
 
         root.sectionTitle("ATRIBUTOS")
         val attributes = Attribute.entries
