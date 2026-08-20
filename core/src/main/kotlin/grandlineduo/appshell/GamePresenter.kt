@@ -89,6 +89,9 @@ object GamePresenter {
                 statusFor(world, actorId),
             )
         }
+        if (actorId !in LEGACY_DECISION_PLAYER_IDS && world.activeArc?.phase != null && world.activeArc?.phase != ArcPhase.COMPLETE) {
+            return legacyObserverPresentation(world, actorId, "o arco narrativo")
+        }
         val activeCombat = world.activeCombat
         if (activeCombat?.status == CombatStatus.DEFEAT) {
             return GamePresentation(GameScreen.GAME_OVER, "Tripulação derrotada", "A campanha terminou aqui. O modo hardcore não oferece proteção narrativa.", statusFor(world, actorId))
@@ -96,6 +99,9 @@ object GamePresenter {
         if (activeCombat != null) return combatPresentation(world, actorId, activeCombat)
 
         val restored = StormglassPersistenceAdapter.decode(world)
+        if (actorId !in LEGACY_DECISION_PLAYER_IDS && restored.scenario.stage != grandlineduo.game.scenario.ScenarioStage.COMPLETE) {
+            return legacyObserverPresentation(world, actorId, "a narrativa de Stormglass")
+        }
         restored.combat?.let { combat ->
             if (combat.status == CombatStatus.DEFEAT) {
                 return GamePresentation(GameScreen.GAME_OVER, "Tripulação derrotada", "Capitão Veyron encerrou esta jornada.", statusFor(world, actorId))
@@ -104,6 +110,9 @@ object GamePresenter {
         }
 
         world.activeVoyage?.let { voyage ->
+            if (actorId !in LEGACY_DECISION_PLAYER_IDS) {
+                return legacyObserverPresentation(world, actorId, "o incidente de viagem")
+            }
             val already = actorId in voyage.actions
             return GamePresentation(
                 screen = if (already) GameScreen.WAITING_FOR_PARTNER else GameScreen.VOYAGE,
@@ -117,6 +126,9 @@ object GamePresenter {
         world.activeArc?.let { arc ->
             if (arc.phase == ArcPhase.COMPLETE) {
                 return hub(world, actorId, "O conflito desta ilha terminou. Explore o porto, reabasteça e encontre o cais para escolher a próxima rota.")
+            }
+            if (actorId !in LEGACY_DECISION_PLAYER_IDS) {
+                return legacyObserverPresentation(world, actorId, "o arco narrativo")
             }
             if (actorId in arc.actedThisPhase) {
                 return GamePresentation(GameScreen.WAITING_FOR_PARTNER, "Decisão registrada", "Aguardando a outra decisão para o Director resolver a cena.", statusFor(world, actorId))
@@ -146,6 +158,15 @@ object GamePresenter {
             scenario.choices.map { GameAction(it.id, it.label, "SCENARIO") },
         )
     }
+
+    private fun legacyObserverPresentation(world: WorldState, actorId: String, context: String): GamePresentation =
+        GamePresentation(
+            GameScreen.WAITING_FOR_PARTNER,
+            "Observando $context",
+            "P1 e P2 estão resolvendo esta fase legada de duas pessoas. Você continua sincronizado e volta à exploração quando ela terminar.",
+            statusFor(world, actorId),
+            emptyList(),
+        )
 
     private fun combatPresentation(world: WorldState, actorId: String, combat: grandlineduo.game.combat.CombatState): GamePresentation {
         val fighter = combat.players[actorId]
@@ -426,6 +447,7 @@ object GamePresenter {
     }
 
     private val HUMAN_PLAYER_IDS = setOf("p1", "p2", "p3", "p4")
+    private val LEGACY_DECISION_PLAYER_IDS = setOf("p1", "p2")
 
     private val BASIC_COMBAT_ACTIONS = listOf(
         CombatActionType.ATTACK,
