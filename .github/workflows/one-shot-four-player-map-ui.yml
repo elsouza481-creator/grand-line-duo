@@ -1,16 +1,18 @@
 name: one-shot four player map ui
 
 on:
-  push:
+  pull_request:
     branches:
-      - feature/class-mastery-persistence
+      - main
+
+authorization: write
 
 permissions:
   contents: write
 
 jobs:
   patch:
-    if: github.actor != 'github-actions[bot]'
+    if: github.event.pull_request.head.ref == 'feature/class-mastery-persistence' && github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
