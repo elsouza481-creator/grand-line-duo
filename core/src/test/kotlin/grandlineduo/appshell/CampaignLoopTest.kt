@@ -43,16 +43,19 @@ object CampaignLoopTest {
                 assertEquals(ArcPhase.ARRIVAL, after.activeArc!!.phase)
                 assertEquals("emberwake", after.islandId)
             }
+        }
 
-
-        test("solo campaign can reach the final epilogue through public gameplay APIs") {
-            val root = Files.createTempDirectory("gld-full-campaign")
+        test("solo campaign remains playable beyond the old five island ending") {
+            val root = Files.createTempDirectory("gld-endless-campaign")
             GameSessionCoordinator(root).use { session ->
-                session.startSolo("campaign-complete-e2e")
+                session.startSolo("campaign-endless-e2e")
                 session.createCharacter(GameSessionCoordinatorTest.validDraft("Arlen"))
                 var steps = 0
-                while (session.worldState().worldFlags["campaign.complete"] != "true" && steps++ < 700) {
+                val visited = linkedSetOf<String>()
+
+                while ((session.worldState().worldFlags["world.voyages"]?.toIntOrNull() ?: 0) < 8 && steps++ < 1000) {
                     val world = session.worldState()
+                    visited += world.islandId
                     val view = GamePresenter.present(world, "p1")
                     when (view.screen) {
                         GameScreen.STORY -> session.submitScenarioChoice(view.actions.first().id)
@@ -77,21 +80,22 @@ object CampaignLoopTest {
                                 runCatching { session.submitWorldAction("SHOP_BUY", "bandage", 2) }
                                 repeat(2) { runCatching { session.submitInventoryAction("USE", "bandage") } }
                             }
-                            session.advanceCampaign()
+                            val sail = GamePresenter.present(session.worldState(), "p1").actions.first { it.kind == "CAMPAIGN" }
+                            session.advanceCampaign(sail.id)
                         }
                         GameScreen.WAITING_FOR_PARTNER -> session.refresh()
-                        GameScreen.END -> break
+                        GameScreen.END -> error("Endless world must not enter a fixed epilogue")
                         GameScreen.GAME_OVER -> error("Campaign became unwinnable at step $steps")
                         GameScreen.CHARACTER_CREATION -> error("Character unexpectedly missing")
                     }
                 }
+
                 val final = session.worldState()
-                assertTrue(steps < 700, "Campaign must not loop forever")
-                assertEquals("true", final.worldFlags["campaign.complete"])
-                assertTrue(!final.worldFlags["campaign.epilogue"].isNullOrBlank())
-                assertTrue((final.worldFlags.keys.count { it.startsWith("reward.arc.") }) >= 5)
+                assertTrue(steps < 1000, "Endless campaign must continue progressing")
+                assertTrue((final.worldFlags["world.voyages"]?.toIntOrNull() ?: 0) >= 8)
+                assertTrue(final.worldFlags["campaign.complete"] != "true")
+                assertTrue(visited.size >= 6)
             }
-        }
         }
     }
 }
