@@ -144,7 +144,7 @@ class MainActivity : Activity() {
                     "COMBAT" -> coordinator.submitCombatAction(CombatActionType.valueOf(action.id))
                     "POWER" -> coordinator.submitPowerAction(action.id)
                     "VOYAGE" -> coordinator.submitVoyageAction(VoyageAction.valueOf(action.id))
-                    "CAMPAIGN" -> coordinator.advanceCampaign()
+                    "CAMPAIGN" -> coordinator.advanceCampaign(action.id)
                     else -> throw IllegalArgumentException("Ação não suportada: ${action.kind}")
                 }
                 postWorld()
