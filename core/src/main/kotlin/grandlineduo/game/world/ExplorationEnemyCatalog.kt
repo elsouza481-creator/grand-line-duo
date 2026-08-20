@@ -12,6 +12,8 @@ data class ExplorationEnemyProfile(
     val maxHp: Int,
     val attackPower: Int,
     val rewardBerries: Long,
+    val rewardItemId: String,
+    val rewardItemAmount: Int = 1,
 )
 
 object ExplorationEnemyCatalog {
@@ -23,24 +25,28 @@ object ExplorationEnemyCatalog {
                 maxHp = 42 + d * 10,
                 attackPower = 5 + d * 2,
                 rewardBerries = 400L + d * 140L,
+                rewardItemId = "ration",
             )
             ExplorationEnemyArchetype.SKIRMISHER -> ExplorationEnemyProfile(
                 name = "Saqueadores da Maré",
                 maxHp = 34 + d * 8,
                 attackPower = 7 + d * 2,
                 rewardBerries = 350L + d * 150L,
+                rewardItemId = "bandage",
             )
             ExplorationEnemyArchetype.MARKSMAN -> ExplorationEnemyProfile(
                 name = "Atiradores do Cais",
                 maxHp = 26 + d * 6,
                 attackPower = 9 + d * 3,
                 rewardBerries = 450L + d * 160L,
+                rewardItemId = "energy_tonic",
             )
             ExplorationEnemyArchetype.OFFICER -> ExplorationEnemyProfile(
                 name = "Oficial Mercenário da Rota",
                 maxHp = 38 + d * 9,
                 attackPower = 8 + d * 2,
                 rewardBerries = 550L + d * 180L,
+                rewardItemId = if (d >= 8) "kairouseki_shard" else "energy_tonic",
             )
         }
     }
