@@ -33,12 +33,29 @@ data class GridPosition(val x: Int, val y: Int) {
         GridPosition(x + direction.dx, y + direction.dy)
 }
 
+data class ExplorationNpc(
+    val id: String,
+    val name: String,
+    val title: String,
+    val position: GridPosition,
+    val questId: String? = null,
+    val dialogue: String,
+)
+
+data class ExplorationQuestObjective(
+    val questId: String,
+    val position: GridPosition,
+    val label: String,
+)
+
 data class ExplorationMap(
     val width: Int,
     val height: Int,
     val tiles: Map<GridPosition, ExplorationTile>,
     val spawn: GridPosition,
     val interactions: Map<GridPosition, ExplorationInteraction>,
+    val npcs: Map<GridPosition, ExplorationNpc> = emptyMap(),
+    val questObjectives: Map<GridPosition, ExplorationQuestObjective> = emptyMap(),
 ) {
     fun tileAt(position: GridPosition): ExplorationTile = tiles[position] ?: ExplorationTile.WATER
     fun isWalkable(position: GridPosition): Boolean = tileAt(position).walkable
@@ -52,11 +69,13 @@ object ExplorationEngine {
     private const val WIDTH = 24
     private const val HEIGHT = 18
     private val SPAWN = GridPosition(WIDTH / 2, HEIGHT / 2)
+    private val QUEST_GIVER_NAMES = listOf("Iria", "Bram", "Noa", "Tess", "Kellan", "Suri")
 
     fun mapFor(campaignId: String, islandId: String): ExplorationMap {
         require(campaignId.isNotBlank()) { "Campaign id is required" }
         require(islandId.isNotBlank()) { "Island id is required" }
-        val random = Random(seed(campaignId, islandId))
+        val mapSeed = seed(campaignId, islandId)
+        val random = Random(mapSeed)
         val tiles = linkedMapOf<GridPosition, ExplorationTile>()
 
         for (y in 0 until HEIGHT) {
@@ -94,7 +113,37 @@ object ExplorationEngine {
         tiles[SPAWN] = ExplorationTile.ROAD
         tiles[SPAWN + ExplorationDirection.EAST] = ExplorationTile.ROAD
 
-        return ExplorationMap(WIDTH, HEIGHT, tiles.toMap(), SPAWN, interactions.toMap())
+        // A guaranteed horizontal quest route gives every generated island a small physical activity.
+        // The NPC and objective remain on the town road so pathing never depends on random obstacles.
+        val questGiverPosition = GridPosition(SPAWN.x - 4, SPAWN.y)
+        val questObjectivePosition = GridPosition(SPAWN.x + 5, SPAWN.y)
+        tiles[questGiverPosition] = ExplorationTile.ROAD
+        tiles[questObjectivePosition] = ExplorationTile.ROAD
+        val questId = "local-cache-$islandId"
+        val npcName = QUEST_GIVER_NAMES[((mapSeed xor (mapSeed ushr 32)).toInt() and Int.MAX_VALUE) % QUEST_GIVER_NAMES.size]
+        val questGiver = ExplorationNpc(
+            id = "wayfinder-$islandId",
+            name = npcName,
+            title = "Batedor local",
+            position = questGiverPosition,
+            questId = questId,
+            dialogue = "Perdi uma caixa marcada na estrada leste. Encontre-a e volte aqui; pago pela recuperação.",
+        )
+        val objective = ExplorationQuestObjective(
+            questId = questId,
+            position = questObjectivePosition,
+            label = "Caixa perdida de $npcName",
+        )
+
+        return ExplorationMap(
+            width = WIDTH,
+            height = HEIGHT,
+            tiles = tiles.toMap(),
+            spawn = SPAWN,
+            interactions = interactions.toMap(),
+            npcs = mapOf(questGiver.position to questGiver),
+            questObjectives = mapOf(objective.position to objective),
+        )
     }
 
     fun position(world: WorldState, playerId: String): GridPosition {
@@ -134,6 +183,16 @@ object ExplorationEngine {
     fun interactionAt(world: WorldState, playerId: String): ExplorationInteraction? {
         val map = mapFor(world.campaignId, world.islandId)
         return map.interactions[position(world, playerId)]
+    }
+
+    fun npcAt(world: WorldState, playerId: String): ExplorationNpc? {
+        val map = mapFor(world.campaignId, world.islandId)
+        return map.npcs[position(world, playerId)]
+    }
+
+    fun questObjectiveAt(world: WorldState, playerId: String): ExplorationQuestObjective? {
+        val map = mapFor(world.campaignId, world.islandId)
+        return map.questObjectives[position(world, playerId)]
     }
 
     private fun positionKey(islandId: String, playerId: String, axis: String) =
