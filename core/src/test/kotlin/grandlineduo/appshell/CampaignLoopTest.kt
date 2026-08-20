@@ -38,6 +38,16 @@ object CampaignLoopTest {
                 assertTrue(session.worldState().players.getValue("p1").profile!!.evolutionPoints >= 2)
                 assertTrue(session.worldState().players.getValue("p2").profile!!.evolutionPoints >= 2)
 
+                var rejectedAwayFromDock = false
+                try {
+                    session.advanceCampaign()
+                } catch (_: IllegalArgumentException) {
+                    rejectedAwayFromDock = true
+                }
+                assertTrue(rejectedAwayFromDock, "Setting sail must require P1 to stand on the physical dock")
+                assertEquals(null, session.worldState().activeVoyage)
+
+                moveP1ToDock(session)
                 session.advanceCampaign()
                 assertTrue(session.worldState().activeVoyage != null)
                 session.submitVoyageAction(VoyageAction.HELM)
