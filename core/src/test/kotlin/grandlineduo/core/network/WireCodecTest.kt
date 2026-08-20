@@ -32,6 +32,9 @@ object WireCodecTest {
                 WireMessage.Sync(SyncPlan.UpToDate),
                 WireMessage.Sync(SyncPlan.Delta(listOf(event))),
                 WireMessage.Sync(SyncPlan.FullSnapshot(WorldState(campaignId = "c1", partyBerries = 50))),
+                WireMessage.Welcome("p2", SyncPlan.UpToDate),
+                WireMessage.Welcome("p3", SyncPlan.Delta(listOf(event))),
+                WireMessage.Welcome("p4", SyncPlan.FullSnapshot(WorldState(campaignId = "c1", partyBerries = 50))),
                 WireMessage.Error("bad request"),
                 WireMessage.GameplayCommand(
                     GameplayWireCommand.CharacterCreate(
