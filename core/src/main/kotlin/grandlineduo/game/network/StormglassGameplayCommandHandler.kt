@@ -310,7 +310,7 @@ class StormglassGameplayCommandHandler(
                 require(parts.size == 2) { "Crew role target must contain npc id and role" }
                 val member = before.crewState.members[parts[0]] ?: throw IllegalArgumentException("Unknown crew member")
                 val role = CrewRole.valueOf(parts[1].uppercase())
-                before.copy(crewState = before.crewState.copy(members = before.crewState.members + (member.npcId to CrewEngine.assignRole(member, role))))
+                before.copy(crewState = before.crewState.copy(members = before.crewState.copy(members = before.crewState.members + (member.npcId to CrewEngine.assignRole(member, role))).members))
             }
             "TRAIN_ATTRIBUTE" -> updateProfile(before, command.actorId) {
                 ProgressionEngine.markAttributeTraining(it, Attribute.valueOf(command.target.uppercase()))
@@ -378,14 +378,14 @@ class StormglassGameplayCommandHandler(
                 require(before.partyBerries >= cost) { "Insufficient Berries to identify the Devil Fruit" }
                 val updated = updateProfile(before, command.actorId) { profile ->
                     val fruit = profile.devilFruit ?: throw IllegalArgumentException("Character has no Devil Fruit")
-                    profile.copy(deevilFruit = DevilFruitEngine.revealIdentity(fruit, PowerDiscoveryEngine.definition(fruit.fruitId)))
+                    profile.copy(devilFruit = DevilFruitEngine.revealIdentity(fruit, PowerDiscoveryEngine.definition(fruit.fruitId)))
                 }
                 updated.copy(partyBerries = updated.partyBerries - cost)
             }
             "FRUIT_TRAIN" -> updateProfile(before, command.actorId) { profile ->
                 val fruit = profile.devilFruit ?: throw IllegalArgumentException("Character has no Devil Fruit")
                 when (val result = DevilFruitEngine.trainMastery(fruit)) {
-                    is DevilFruitMasteryResult.Advanced -> profile.copy(deevilFruit = result.state)
+                    is DevilFruitMasteryResult.Advanced -> profile.copy(devilFruit = result.state)
                     is DevilFruitMasteryResult.Rejected -> throw IllegalArgumentException("Devil Fruit mastery rejected: ${result.reason}")
                 }
             }
