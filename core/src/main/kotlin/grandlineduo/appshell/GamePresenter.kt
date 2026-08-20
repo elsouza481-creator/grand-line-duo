@@ -9,6 +9,11 @@ import grandlineduo.game.combat.CombatStatus
 import grandlineduo.game.scenario.StormglassCayScenario
 import grandlineduo.game.powers.PowerTechniqueEngine
 import grandlineduo.game.ship.VoyageAction
+import grandlineduo.game.world.ExplorationDirection
+import grandlineduo.game.world.ExplorationEngine
+import grandlineduo.game.world.ExplorationInteraction
+import grandlineduo.game.world.ExplorationMap
+import grandlineduo.game.world.GridPosition
 import grandlineduo.game.world.GrandLineWorldAtlas
 
 enum class GameScreen {
@@ -25,12 +30,19 @@ enum class GameScreen {
 
 data class GameAction(val id: String, val label: String, val kind: String)
 
+data class ExplorationPresentation(
+    val map: ExplorationMap,
+    val playerPosition: GridPosition,
+    val interaction: ExplorationInteraction?,
+)
+
 data class GamePresentation(
     val screen: GameScreen,
     val title: String,
     val body: String,
     val status: List<String> = emptyList(),
     val actions: List<GameAction> = emptyList(),
+    val exploration: ExplorationPresentation? = null,
 )
 
 object GamePresenter {
@@ -91,7 +103,7 @@ object GamePresenter {
 
         world.activeArc?.let { arc ->
             if (arc.phase == ArcPhase.COMPLETE) {
-                return hub(world, actorId, "O conflito desta ilha terminou. Reorganize a tripulação e escolha livremente a próxima rota.")
+                return hub(world, actorId, "O conflito desta ilha terminou. Explore o porto, reabasteça e encontre o cais para escolher a próxima rota.")
             }
             if (actorId in arc.actedThisPhase) {
                 return GamePresentation(GameScreen.WAITING_FOR_PARTNER, "Decisão registrada", "Aguardando a outra decisão para o Director resolver a cena.", statusFor(world, actorId))
@@ -107,7 +119,7 @@ object GamePresenter {
         }
 
         if (restored.scenario.stage == grandlineduo.game.scenario.ScenarioStage.COMPLETE) {
-            return hub(world, actorId, "Stormglass Cay ficou para trás. O Log Pose oferece várias rotas pela Grand Line.")
+            return hub(world, actorId, "Stormglass Cay ficou para trás. Caminhe pelo porto e alcance o cais para zarpar pela Grand Line.")
         }
         if (actorId in restored.scenario.actedThisStage) {
             return GamePresentation(GameScreen.WAITING_FOR_PARTNER, "Decisão registrada", "Aguardando a outra decisão.", statusFor(world, actorId))
@@ -146,34 +158,52 @@ object GamePresenter {
     }
 
     private fun hub(world: WorldState, actorId: String, body: String): GamePresentation {
+        val map = ExplorationEngine.mapFor(world.campaignId, world.islandId)
+        val playerPosition = ExplorationEngine.position(world, actorId)
+        val interaction = ExplorationEngine.interactionAt(world, actorId)
         val actions = buildList {
-            if (actorId == "p1") {
-                val voyageIndex = world.worldFlags["world.voyages"]?.toIntOrNull()
-                    ?: world.worldFlags["campaign.chapter"]?.toIntOrNull()
-                    ?: 0
-                GrandLineWorldAtlas.availableDestinations(world.campaignId, world.islandId, voyageIndex).forEach { island ->
-                    add(
-                        GameAction(
-                            island.id,
-                            "Zarpar: ${island.name} • perigo ${island.danger}/10 • ${island.climate}",
-                            "CAMPAIGN",
-                        )
-                    )
-                }
+            ExplorationDirection.entries.forEach { direction ->
+                add(GameAction(direction.name, explorationLabel(direction), "EXPLORE_MOVE"))
             }
             add(GameAction("INVENTORY", "Inventário e equipamento", "MENU"))
-            add(GameAction("SHOP", "Mercado da ilha", "MENU"))
-            add(GameAction("SHIP", "Navio e suprimentos", "MENU"))
-            add(GameAction("CREW", "Tripulação", "MENU"))
-            add(GameAction("TRAINING", "Poderes e treino", "MENU"))
+            when (interaction) {
+                ExplorationInteraction.MARKET -> add(GameAction("SHOP", "Entrar no mercado", "MENU"))
+                ExplorationInteraction.TRAINING -> add(GameAction("TRAINING", "Treinar nesta área", "MENU"))
+                ExplorationInteraction.SHIP -> add(GameAction("SHIP", "Gerenciar o navio", "MENU"))
+                ExplorationInteraction.CREW -> add(GameAction("CREW", "Falar com a tripulação", "MENU"))
+                ExplorationInteraction.DOCK -> if (actorId == "p1") {
+                    val voyageIndex = world.worldFlags["world.voyages"]?.toIntOrNull()
+                        ?: world.worldFlags["campaign.chapter"]?.toIntOrNull()
+                        ?: 0
+                    GrandLineWorldAtlas.availableDestinations(world.campaignId, world.islandId, voyageIndex).forEach { island ->
+                        add(
+                            GameAction(
+                                island.id,
+                                "Zarpar: ${island.name} • perigo ${island.danger}/10 • ${island.climate}",
+                                "CAMPAIGN",
+                            )
+                        )
+                    }
+                }
+                null -> Unit
+            }
         }
         val island = GrandLineWorldAtlas.describe(world.campaignId, world.islandId)
+        val contextualBody = when (interaction) {
+            ExplorationInteraction.DOCK -> "$body\nVocê está no cais."
+            ExplorationInteraction.MARKET -> "$body\nBancas e mercadores cercam você."
+            ExplorationInteraction.TRAINING -> "$body\nEsta área foi preparada para treino."
+            ExplorationInteraction.SHIP -> "$body\nSeu navio está atracado aqui."
+            ExplorationInteraction.CREW -> "$body\nA tripulação se reúne neste ponto."
+            null -> body
+        }
         return GamePresentation(
-            GameScreen.HUB,
-            "${world.shipState?.name ?: "Tripulação"} • ${island.name}",
-            body,
-            statusFor(world, actorId),
-            actions,
+            screen = GameScreen.HUB,
+            title = "${world.shipState?.name ?: "Tripulação"} • ${island.name}",
+            body = contextualBody,
+            status = statusFor(world, actorId),
+            actions = actions,
+            exploration = ExplorationPresentation(map, playerPosition, interaction),
         )
     }
 
@@ -191,6 +221,13 @@ object GamePresenter {
             add("Caixa ${world.partyBerries} Berries")
             if (ship != null) add("Navio ${ship.hull}/${ship.maxHull} • Suprimentos ${ship.supplies}/${ship.maxSupplies}")
         }
+    }
+
+    private fun explorationLabel(direction: ExplorationDirection): String = when (direction) {
+        ExplorationDirection.NORTH -> "Mover ↑"
+        ExplorationDirection.SOUTH -> "Mover ↓"
+        ExplorationDirection.WEST -> "Mover ←"
+        ExplorationDirection.EAST -> "Mover →"
     }
 
     private fun combatLabel(type: CombatActionType): String = when (type) {
