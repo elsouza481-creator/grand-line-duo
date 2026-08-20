@@ -23,6 +23,26 @@ object InventoryEngineTest {
             assertEquals(4, InventoryEngine.combatBonus(equipped, "p1").attackDamage)
         }
 
+        test("item catalog exposes meaningful rarity tiers without changing inventory identity") {
+            assertEquals(ItemRarity.COMMON, ItemCatalog.get("ration").rarity)
+            assertEquals(ItemRarity.UNCOMMON, ItemCatalog.get("iron_sabre").rarity)
+            assertEquals(ItemRarity.RARE, ItemCatalog.get("marine_vest").rarity)
+            assertEquals(ItemRarity.EPIC, ItemCatalog.get("kairouseki_shard").rarity)
+            assertEquals(ItemRarity.LEGENDARY, ItemCatalog.get(ItemCatalog.FIELD_BOSS_LEGENDARY_ID).rarity)
+        }
+
+        test("field boss legendary weapon uses normal equipment persistence and grants real combat power") {
+            var state = InventoryEngine.grant(world(), "p1", ItemCatalog.FIELD_BOSS_LEGENDARY_ID, 1)
+            state = InventoryEngine.equip(state, "p1", ItemCatalog.FIELD_BOSS_LEGENDARY_ID)
+
+            val inventory = InventoryEngine.read(state, "p1")
+            val legendary = ItemCatalog.get(ItemCatalog.FIELD_BOSS_LEGENDARY_ID)
+            assertEquals(ItemType.WEAPON, legendary.type)
+            assertEquals(ItemRarity.LEGENDARY, legendary.rarity)
+            assertEquals(ItemCatalog.FIELD_BOSS_LEGENDARY_ID, inventory.equipped[EquipmentSlot.WEAPON])
+            assertTrue(InventoryEngine.combatBonus(state, "p1").attackDamage > ItemCatalog.get("iron_sabre").attackDamage)
+        }
+
         test("consumable heals without exceeding max hp and consumes one") {
             var state = world().copy(players = world().players + ("p1" to world().players.getValue("p1").copy(hp = 7)))
             state = InventoryEngine.grant(state, "p1", "bandage", 2)
