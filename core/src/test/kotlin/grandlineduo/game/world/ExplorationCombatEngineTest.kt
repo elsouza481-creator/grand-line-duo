@@ -4,6 +4,7 @@ import grandlineduo.core.model.PlayerState
 import grandlineduo.core.model.WorldState
 import grandlineduo.game.InventoryEngine
 import grandlineduo.game.combat.CombatStatus
+import grandlineduo.game.combat.EnemyAttackType
 import grandlineduo.test.assertEquals
 import grandlineduo.test.assertTrue
 import grandlineduo.test.test
@@ -30,7 +31,7 @@ object ExplorationCombatEngineTest {
             assertTrue(enemy.rewardItemAmount > 0)
         }
 
-        test("enemy archetypes have distinct combat roles and all scale with island danger") {
+        test("enemy archetypes have distinct combat roles scale with danger and declare tactical openings") {
             val lowDanger = ExplorationEnemyArchetype.entries.associateWith {
                 ExplorationEnemyCatalog.profile(it, danger = 2)
             }
@@ -53,9 +54,15 @@ object ExplorationCombatEngineTest {
             }
 
             val bruiser = ExplorationEnemyCatalog.profile(ExplorationEnemyArchetype.BRUISER, danger = 5)
+            val skirmisher = ExplorationEnemyCatalog.profile(ExplorationEnemyArchetype.SKIRMISHER, danger = 5)
             val marksman = ExplorationEnemyCatalog.profile(ExplorationEnemyArchetype.MARKSMAN, danger = 5)
+            val officer = ExplorationEnemyCatalog.profile(ExplorationEnemyArchetype.OFFICER, danger = 5)
             assertTrue(bruiser.maxHp > marksman.maxHp)
             assertTrue(marksman.attackPower > bruiser.attackPower)
+            assertEquals(EnemyAttackType.HEAVY_STRIKE, bruiser.initialAttackType)
+            assertEquals(EnemyAttackType.SWEEP, skirmisher.initialAttackType)
+            assertEquals(EnemyAttackType.HEAVY_STRIKE, marksman.initialAttackType)
+            assertEquals(EnemyAttackType.SWEEP, officer.initialAttackType)
         }
 
         test("stepping onto a live hostile tile starts free roam combat but ordinary movement does not") {
@@ -73,6 +80,7 @@ object ExplorationCombatEngineTest {
             assertEquals(enemy.id, combat.enemy.id)
             assertEquals(enemy.maxHp, combat.enemy.maxHp)
             assertEquals(enemy.attackPower, combat.enemy.attackPower)
+            assertEquals(enemy.initialAttackType, combat.telegraph.type)
             assertEquals(world.players.getValue("p1").hp, combat.players.getValue("p1").hp)
             assertEquals(world.players.getValue("p2").hp, combat.players.getValue("p2").hp)
             assertTrue(ExplorationCombatEngine.isActive(started))
