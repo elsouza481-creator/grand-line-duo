@@ -2,6 +2,8 @@ package grandlineduo.game.world
 
 import grandlineduo.core.model.PlayerState
 import grandlineduo.core.model.WorldState
+import grandlineduo.game.InventoryEngine
+import grandlineduo.game.ItemCatalog
 import grandlineduo.game.character.CharacterCreation
 import grandlineduo.game.character.CharacterCreationResult
 import grandlineduo.game.character.CharacterCreationTest
@@ -71,7 +73,7 @@ object ExplorationFieldBossTest {
             assertEquals(boss.attackPower, world.activeCombat?.enemy?.attackPower)
         }
 
-        test("first field boss clear doubles berries and primary mastery xp only once") {
+        test("first field boss clear doubles berries primary mastery xp and grants one legendary only once") {
             val created = CharacterCreation.create(
                 CharacterCreationTest.validDraft().copy(name = "A", classPath = ClassPath.SWORDSMAN)
             ) as CharacterCreationResult.Success
@@ -104,6 +106,8 @@ object ExplorationFieldBossTest {
             )
             assertEquals(berriesBefore + boss.rewardBerries * 2L, world.partyBerries)
             assertEquals(expectedFirstMastery, world.players.getValue("p1").profile!!.classMastery)
+            assertEquals(1, InventoryEngine.read(world, "p1").items[ItemCatalog.FIELD_BOSS_LEGENDARY_ID] ?: 0)
+            assertEquals(0, InventoryEngine.read(world, "p2").items[ItemCatalog.FIELD_BOSS_LEGENDARY_ID] ?: 0)
 
             val berriesAfterFirst = world.partyBerries
             val masteryAfterFirst = world.players.getValue("p1").profile!!.classMastery!!
@@ -128,6 +132,8 @@ object ExplorationFieldBossTest {
             )
             assertEquals(berriesAfterFirst + boss.rewardBerries, world.partyBerries)
             assertEquals(expectedRepeatMastery, world.players.getValue("p1").profile!!.classMastery)
+            assertEquals(1, InventoryEngine.read(world, "p1").items[ItemCatalog.FIELD_BOSS_LEGENDARY_ID] ?: 0)
+            assertEquals(0, InventoryEngine.read(world, "p2").items[ItemCatalog.FIELD_BOSS_LEGENDARY_ID] ?: 0)
         }
     }
 
