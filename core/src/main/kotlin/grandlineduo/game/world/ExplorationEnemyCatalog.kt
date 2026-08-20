@@ -1,5 +1,7 @@
 package grandlineduo.game.world
 
+import grandlineduo.game.combat.EnemyAttackType
+
 enum class ExplorationEnemyArchetype {
     BRUISER,
     SKIRMISHER,
@@ -14,6 +16,7 @@ data class ExplorationEnemyProfile(
     val rewardBerries: Long,
     val rewardItemId: String,
     val rewardItemAmount: Int = 1,
+    val initialAttackType: EnemyAttackType,
 )
 
 object ExplorationEnemyCatalog {
@@ -26,6 +29,7 @@ object ExplorationEnemyCatalog {
                 attackPower = 5 + d * 2,
                 rewardBerries = 400L + d * 140L,
                 rewardItemId = "ration",
+                initialAttackType = EnemyAttackType.HEAVY_STRIKE,
             )
             ExplorationEnemyArchetype.SKIRMISHER -> ExplorationEnemyProfile(
                 name = "Saqueadores da Maré",
@@ -33,6 +37,7 @@ object ExplorationEnemyCatalog {
                 attackPower = 7 + d * 2,
                 rewardBerries = 350L + d * 150L,
                 rewardItemId = "bandage",
+                initialAttackType = EnemyAttackType.SWEEP,
             )
             ExplorationEnemyArchetype.MARKSMAN -> ExplorationEnemyProfile(
                 name = "Atiradores do Cais",
@@ -40,6 +45,7 @@ object ExplorationEnemyCatalog {
                 attackPower = 9 + d * 3,
                 rewardBerries = 450L + d * 160L,
                 rewardItemId = "energy_tonic",
+                initialAttackType = EnemyAttackType.HEAVY_STRIKE,
             )
             ExplorationEnemyArchetype.OFFICER -> ExplorationEnemyProfile(
                 name = "Oficial Mercenário da Rota",
@@ -47,6 +53,7 @@ object ExplorationEnemyCatalog {
                 attackPower = 8 + d * 2,
                 rewardBerries = 550L + d * 180L,
                 rewardItemId = if (d >= 8) "kairouseki_shard" else "energy_tonic",
+                initialAttackType = EnemyAttackType.SWEEP,
             )
         }
     }
