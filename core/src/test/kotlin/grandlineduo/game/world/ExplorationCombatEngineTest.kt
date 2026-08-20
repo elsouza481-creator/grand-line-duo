@@ -11,24 +11,27 @@ import grandlineduo.test.test
 
 object ExplorationCombatEngineTest {
     fun register() {
-        test("each island exposes one deterministic walkable hostile encounter without physical overlap") {
+        test("each island exposes three deterministic walkable hostile encounters without physical overlap") {
             val a = ExplorationEngine.mapFor("free-roam-map", "stormglass-cay")
             val b = ExplorationEngine.mapFor("free-roam-map", "stormglass-cay")
 
             assertEquals(a.enemies, b.enemies)
-            val enemy = a.enemies.values.single()
-            assertTrue(a.isWalkable(enemy.position))
-            assertTrue(enemy.position != a.spawn)
-            assertTrue(enemy.position !in a.interactions)
-            assertTrue(enemy.position !in a.npcs)
-            assertTrue(enemy.position !in a.questObjectives)
-            assertTrue(enemy.position !in a.pickups)
-            assertTrue(enemy.archetype in ExplorationEnemyArchetype.entries)
-            assertTrue(enemy.maxHp > 0)
-            assertTrue(enemy.attackPower > 0)
-            assertTrue(enemy.rewardBerries > 0)
-            assertTrue(enemy.rewardItemId.isNotBlank())
-            assertTrue(enemy.rewardItemAmount > 0)
+            assertEquals(3, a.enemies.size)
+            assertEquals(3, a.enemies.keys.toSet().size)
+            a.enemies.values.forEach { enemy ->
+                assertTrue(a.isWalkable(enemy.position))
+                assertTrue(enemy.position != a.spawn)
+                assertTrue(enemy.position !in a.interactions)
+                assertTrue(enemy.position !in a.npcs)
+                assertTrue(enemy.position !in a.questObjectives)
+                assertTrue(enemy.position !in a.pickups)
+                assertTrue(enemy.archetype in ExplorationEnemyArchetype.entries)
+                assertTrue(enemy.maxHp > 0)
+                assertTrue(enemy.attackPower > 0)
+                assertTrue(enemy.rewardBerries > 0)
+                assertTrue(enemy.rewardItemId.isNotBlank())
+                assertTrue(enemy.rewardItemAmount > 0)
+            }
         }
 
         test("enemy archetypes have distinct combat roles scale with danger and declare tactical openings") {
@@ -68,7 +71,7 @@ object ExplorationCombatEngineTest {
         test("stepping onto a live hostile tile starts free roam combat but ordinary movement does not") {
             var world = world("free-roam-start")
             val map = ExplorationEngine.mapFor(world.campaignId, world.islandId)
-            val enemy = map.enemies.values.single()
+            val enemy = map.enemies.values.sortedBy { it.id }.first()
 
             val unchanged = ExplorationCombatEngine.startIfEncountered(world, "p1")
             assertEquals(null, unchanged.activeCombat)
@@ -88,7 +91,7 @@ object ExplorationCombatEngineTest {
 
         test("free roam victory grants deterministic loot to each surviving fighter exactly once") {
             var world = world("free-roam-loot")
-            val enemy = ExplorationEngine.mapFor(world.campaignId, world.islandId).enemies.values.single()
+            val enemy = ExplorationEngine.mapFor(world.campaignId, world.islandId).enemies.values.sortedBy { it.id }.first()
             world = ExplorationEngine.place(world, "p1", enemy.position)
             world = ExplorationCombatEngine.startIfEncountered(world, "p1")
             val combat = world.activeCombat!!
@@ -112,9 +115,11 @@ object ExplorationCombatEngineTest {
             assertEquals(afterP2, InventoryEngine.read(revisited, "p2").items[enemy.rewardItemId])
         }
 
-        test("free roam victory removes the encounter rewards party once and prevents respawn") {
+        test("free roam victory removes only that encounter rewards party once and prevents its respawn") {
             var world = world("free-roam-victory")
-            val enemy = ExplorationEngine.mapFor(world.campaignId, world.islandId).enemies.values.single()
+            val map = ExplorationEngine.mapFor(world.campaignId, world.islandId)
+            val enemy = map.enemies.values.sortedBy { it.id }.first()
+            val otherIds = map.enemies.values.map { it.id }.toSet() - enemy.id
             world = ExplorationEngine.place(world, "p1", enemy.position)
             world = ExplorationCombatEngine.startIfEncountered(world, "p1")
             val berriesBefore = world.partyBerries
@@ -130,6 +135,7 @@ object ExplorationCombatEngineTest {
 
             assertEquals(null, completed.activeCombat)
             assertTrue(ExplorationCombatEngine.isDefeated(completed, enemy.id))
+            otherIds.forEach { assertTrue(!ExplorationCombatEngine.isDefeated(completed, it)) }
             assertEquals(berriesBefore + enemy.rewardBerries, completed.partyBerries)
             val revisited = ExplorationCombatEngine.startIfEncountered(completed, "p1")
             assertEquals(null, revisited.activeCombat)
