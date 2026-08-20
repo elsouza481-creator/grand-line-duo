@@ -4,6 +4,8 @@ import grandlineduo.game.combat.CombatStatus
 import grandlineduo.game.world.ExplorationCombatEngine
 import grandlineduo.game.world.ExplorationEnemyRank
 import grandlineduo.game.world.ExplorationEngine
+import grandlineduo.game.world.ExplorationQuestEngine
+import grandlineduo.test.assertEquals
 import grandlineduo.test.assertTrue
 import grandlineduo.test.test
 import java.nio.file.Files
@@ -73,6 +75,50 @@ object ExplorationFieldBossPresentationTest {
                 assertTrue("dificuldade ${boss.difficulty.name.lowercase()}" in body)
                 assertTrue("reaparece em $remaining passos" in body)
                 assertTrue("primeira vitória 2x" !in body)
+            }
+        }
+
+        test("presenter tracks active boss hunt target and sends survivor back to Rook after victory") {
+            val root = Files.createTempDirectory("gld-boss-hunt-present")
+            GameSessionCoordinator(root).use { session ->
+                session.startSolo("boss-hunt-present")
+                session.createCharacter(GameSessionCoordinatorTest.validDraft("Arlen"))
+                val base = session.worldState()
+                var world = base.copy(
+                    islandId = "meridian-vault",
+                    worldFlags = base.worldFlags + ("sg.stage" to "COMPLETE"),
+                )
+                val map = ExplorationEngine.mapFor(world.campaignId, world.islandId)
+                val boss = map.enemies.values.single { it.rank == ExplorationEnemyRank.FIELD_BOSS }
+                val questId = ExplorationQuestEngine.bossHuntQuestId(world.islandId)
+                val hunter = map.npcs.values.single { it.questId == questId }
+
+                world = ExplorationEngine.place(world, "p1", hunter.position)
+                world = ExplorationQuestEngine.accept(world, "p1", questId)
+                val active = GamePresenter.present(world, "p1")
+                val activeBody = active.body.lowercase()
+
+                assertTrue("caçada ativa" in activeBody)
+                assertTrue(boss.name.lowercase() in activeBody)
+                assertEquals(boss.position, requireNotNull(active.exploration).trackedBossHuntTarget)
+
+                world = ExplorationEngine.place(world, "p1", boss.position)
+                world = ExplorationCombatEngine.startIfEncountered(world, "p1")
+                val combat = requireNotNull(world.activeCombat)
+                world = ExplorationCombatEngine.completeVictory(
+                    world.copy(
+                        activeCombat = combat.copy(
+                            enemy = combat.enemy.copy(hp = 0),
+                            status = CombatStatus.VICTORY,
+                        )
+                    )
+                )
+                val completed = GamePresenter.present(world, "p1")
+                val completedBody = completed.body.lowercase()
+
+                assertTrue("caçada concluída" in completedBody)
+                assertTrue("volte a rook" in completedBody)
+                assertTrue(requireNotNull(completed.exploration).trackedBossHuntTarget == null)
             }
         }
     }
