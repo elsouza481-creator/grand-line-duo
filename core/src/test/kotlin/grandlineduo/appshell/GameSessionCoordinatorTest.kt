@@ -240,7 +240,7 @@ object GameSessionCoordinatorTest {
                 p2.refresh()
                 val afterP1 = StormglassPersistenceAdapter.decode(host.worldState()).combat
                 if (afterP1 != null && "p2" !in afterP1.lockedActions && afterP1.players["p2"]?.hp ?: 0 > 0) {
-                    p2.submitCombatAction(CombatActionType.ATTACK)
+                    p2.submitCombatAction(CombatActionType.FINISHER)
                 }
                 val afterPair = StormglassPersistenceAdapter.decode(host.worldState()).combat
                 if (afterPair != null && afterPair.lockedActions.keys.containsAll(setOf("p1", "p2"))) {
