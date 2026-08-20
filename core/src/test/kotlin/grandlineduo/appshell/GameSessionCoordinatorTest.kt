@@ -44,6 +44,11 @@ object GameSessionCoordinatorTest {
             GameSessionCoordinator(root).use { session ->
                 session.startSolo(campaignId = "world-action")
                 session.createCharacter(validDraft("Mira"))
+                // Market is two tiles west and one north from the guaranteed town spawn.
+                session.submitWorldAction("EXPLORE_MOVE", "WEST", 999)
+                session.submitWorldAction("EXPLORE_MOVE", "WEST", 999)
+                session.submitWorldAction("EXPLORE_MOVE", "NORTH", 999)
+
                 val before = session.worldState().partyBerries
                 session.submitWorldAction("SHOP_BUY", "bandage", 1)
                 assertEquals(before - 250L, session.worldState().partyBerries)
