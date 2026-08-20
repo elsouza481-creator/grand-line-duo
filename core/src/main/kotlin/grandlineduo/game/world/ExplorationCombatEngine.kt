@@ -1,6 +1,7 @@
 package grandlineduo.game.world
 
 import grandlineduo.core.model.WorldState
+import grandlineduo.game.InventoryEngine
 import grandlineduo.game.combat.CombatStatus
 import grandlineduo.game.combat.CombatState
 import grandlineduo.game.combat.Combatant
@@ -86,12 +87,25 @@ object ExplorationCombatEngine {
         if (isDefeated(world, enemy.id)) {
             return world.copy(players = syncedPlayers, activeCombat = null, worldFlags = clearedFlags)
         }
-        return world.copy(
+
+        var rewarded = world.copy(
             players = syncedPlayers,
             activeCombat = null,
             partyBerries = world.partyBerries + enemy.rewardBerries,
             worldFlags = clearedFlags + (defeatedKey(world.islandId, enemy.id) to "true"),
         )
+        combat.players.values
+            .filter { it.hp > 0 && it.id in rewarded.players }
+            .sortedBy { it.id }
+            .forEach { fighter ->
+                rewarded = InventoryEngine.grant(
+                    rewarded,
+                    fighter.id,
+                    enemy.rewardItemId,
+                    enemy.rewardItemAmount,
+                )
+            }
+        return rewarded
     }
 
     private fun activeKey(islandId: String): String = "explore.$islandId.combat.enemy"
