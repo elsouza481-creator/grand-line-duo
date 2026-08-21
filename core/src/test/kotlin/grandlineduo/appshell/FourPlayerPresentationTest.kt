@@ -7,6 +7,10 @@ import grandlineduo.game.arc.ArcStartContext
 import grandlineduo.game.character.CharacterCreation
 import grandlineduo.game.character.CharacterCreationResult
 import grandlineduo.game.character.CharacterProfile
+import grandlineduo.game.ship.VoyageAction
+import grandlineduo.game.ship.VoyageEncounter
+import grandlineduo.game.ship.VoyageIncident
+import grandlineduo.game.ship.VoyageIncidentType
 import grandlineduo.game.world.ExplorationDirection
 import grandlineduo.game.world.ExplorationEngine
 import grandlineduo.game.world.GridPosition
@@ -92,6 +96,36 @@ object FourPlayerPresentationTest {
 
             val afterP3 = ArcEngine.choose(arc, "p3", "shadow_authority").state
             val waiting = GamePresenter.present(world.copy(activeArc = afterP3), "p3")
+            assertEquals(GameScreen.WAITING_FOR_PARTNER, waiting.screen)
+            assertTrue(waiting.actions.isEmpty())
+            assertTrue(waiting.body.contains("Aguardando"))
+        }
+
+        test("P3 and P4 receive voyage actions when they are declared four-player voyage participants") {
+            val profiles = profiles(4)
+            val encounter = VoyageEncounter(
+                incident = VoyageIncident(VoyageIncidentType.STORM, severity = 3, seed = 404L),
+                participants = profiles.keys.toSortedSet(),
+            )
+            val world = WorldState(
+                campaignId = "present-four-voyage",
+                islandId = "stormglass-cay",
+                players = players(profiles),
+                worldFlags = mapOf("sg.stage" to "COMPLETE"),
+                activeVoyage = encounter,
+            )
+
+            listOf("p3", "p4").forEach { actorId ->
+                val presentation = GamePresenter.present(world, actorId)
+                assertEquals(GameScreen.VOYAGE, presentation.screen)
+                assertTrue(presentation.actions.isNotEmpty())
+                assertTrue(presentation.actions.all { it.kind == "VOYAGE" })
+            }
+
+            val locked = world.copy(
+                activeVoyage = encounter.copy(actions = mapOf("p3" to VoyageAction.HELM)),
+            )
+            val waiting = GamePresenter.present(locked, "p3")
             assertEquals(GameScreen.WAITING_FOR_PARTNER, waiting.screen)
             assertTrue(waiting.actions.isEmpty())
             assertTrue(waiting.body.contains("Aguardando"))
