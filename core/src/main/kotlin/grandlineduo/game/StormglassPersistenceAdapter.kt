@@ -4,6 +4,7 @@ import grandlineduo.core.model.WorldState
 import grandlineduo.game.combat.*
 import grandlineduo.game.scenario.ScenarioStage
 import grandlineduo.game.scenario.ScenarioState
+import grandlineduo.game.scenario.StormglassCayScenario
 
 data class StormglassRestoredState(
     val scenario: ScenarioState,
@@ -12,6 +13,7 @@ data class StormglassRestoredState(
 
 object StormglassPersistenceAdapter {
     private const val PREFIX = "sg."
+    private val HUMAN_PLAYER_IDS = setOf("p1", "p2", "p3", "p4")
 
     fun encode(
         world: WorldState,
@@ -20,6 +22,9 @@ object StormglassPersistenceAdapter {
     ): WorldState {
         val flags = world.worldFlags.filterKeys { !it.startsWith(PREFIX) }.toMutableMap()
         flags["sg.stage"] = scenario.stage.name
+        if (scenario.participantIds != StormglassCayScenario.LEGACY_PARTICIPANTS) {
+            scenario.participantIds.sorted().forEach { flags["sg.participant.$it"] = "1" }
+        }
         scenario.sharedFlags.sorted().forEach { flags["sg.shared.$it"] = "1" }
         scenario.privateKnowledge.toSortedMap().forEach { (playerId, knowledge) ->
             knowledge.sorted().forEach { flags["sg.private.$playerId.$it"] = "1" }
@@ -57,26 +62,43 @@ object StormglassPersistenceAdapter {
             .filter { it.startsWith("sg.shared.") && flags[it] == "1" }
             .map { it.removePrefix("sg.shared.") }
             .toSet()
-        val privateKnowledge = listOf("p1", "p2").associateWith { playerId ->
+        val acted = flags.keys
+            .filter { it.startsWith("sg.acted.") && flags[it] == "1" }
+            .map { it.removePrefix("sg.acted.") }
+            .toSet()
+        val persistedParticipants = flags.keys
+            .filter { it.startsWith("sg.participant.") && flags[it] == "1" }
+            .map { it.removePrefix("sg.participant.") }
+            .filter { it in HUMAN_PLAYER_IDS }
+            .toSortedSet()
+        val createdParticipants = world.players.values
+            .filter { it.playerId in HUMAN_PLAYER_IDS && it.profile != null }
+            .map { it.playerId }
+            .toSortedSet()
+        val participants = when {
+            persistedParticipants.isNotEmpty() -> persistedParticipants
+            stage == ScenarioStage.ARRIVAL && acted.isEmpty() &&
+                createdParticipants.size in 2..4 &&
+                "p1" in createdParticipants && "p2" in createdParticipants -> createdParticipants
+            else -> StormglassCayScenario.LEGACY_PARTICIPANTS
+        }
+        val privateKnowledge = participants.associateWith { playerId ->
             val prefix = "sg.private.$playerId."
             flags.keys
                 .filter { it.startsWith(prefix) && flags[it] == "1" }
                 .map { it.removePrefix(prefix) }
                 .toSet()
         }
-        val acted = flags.keys
-            .filter { it.startsWith("sg.acted.") && flags[it] == "1" }
-            .map { it.removePrefix("sg.acted.") }
-            .toSet()
         val scenario = ScenarioState(
             stage = stage,
             sharedFlags = shared,
             privateKnowledge = privateKnowledge,
             actedThisStage = acted,
+            participantIds = participants,
         )
 
         val combat = if (flags["sg.combat"] == "1") {
-            val combatPlayers = listOf("p1", "p2").associateWith { playerId ->
+            val combatPlayers = scenario.participantIds.associateWith { playerId ->
                 val player = world.players[playerId]
                     ?: throw IllegalArgumentException("Legacy combat player $playerId missing from world state")
                 Combatant(playerId, player.name, player.hp, player.maxHp)
