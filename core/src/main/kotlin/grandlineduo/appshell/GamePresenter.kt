@@ -116,10 +116,15 @@ object GamePresenter {
                 return legacyObserverPresentation(world, actorId, "o incidente de viagem")
             }
             val already = actorId in voyage.actions
+            val progress = "${voyage.actions.size}/${voyage.participants.size}"
             return GamePresentation(
                 screen = if (already) GameScreen.WAITING_FOR_PARTNER else GameScreen.VOYAGE,
                 title = "Incidente no mar: ${voyage.incident.type.name.replace('_', ' ')}",
-                body = if (already) "Sua ação está travada. Aguardando as demais decisões." else "O mar virou contra o navio. Escolha sua função nesta janela tática.",
+                body = if (already) {
+                    "Sua ação está travada. Aguardando as demais decisões. Ações registradas: $progress."
+                } else {
+                    "O mar virou contra o navio. Escolha sua função nesta janela tática. Ações registradas: $progress."
+                },
                 status = statusFor(world, actorId),
                 actions = if (already) emptyList() else VoyageAction.entries.map { GameAction(it.name, voyageLabel(it), "VOYAGE") },
             )
@@ -132,14 +137,20 @@ object GamePresenter {
             if (actorId !in arc.participantIds) {
                 return legacyObserverPresentation(world, actorId, "o arco narrativo")
             }
+            val progress = "${arc.actedThisPhase.size}/${arc.participantIds.size}"
             if (actorId in arc.actedThisPhase) {
-                return GamePresentation(GameScreen.WAITING_FOR_PARTNER, "Decisão registrada", "Aguardando as demais decisões para o Director resolver a cena.", statusFor(world, actorId))
+                return GamePresentation(
+                    GameScreen.WAITING_FOR_PARTNER,
+                    "Decisão registrada",
+                    "Aguardando as demais decisões para o Director resolver a cena. Decisões registradas: $progress.",
+                    statusFor(world, actorId),
+                )
             }
             val view = ArcEngine.view(arc, actorId)
             return GamePresentation(
                 GameScreen.ARC,
                 view.title,
-                view.description,
+                "${view.description}\nDecisões registradas: $progress.",
                 statusFor(world, actorId),
                 view.choices.map { GameAction(it.id, it.label, "ARC") },
             )
