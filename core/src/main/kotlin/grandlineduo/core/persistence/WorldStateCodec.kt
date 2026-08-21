@@ -368,11 +368,11 @@ object WorldStateCodec {
         repeat(sharedCount) { shared += data.readUTF() }
 
         val privatePlayerCount = data.readInt()
-        require(privatePlayerCount in 0..2) { "Invalid arc private player count" }
+        require(privatePlayerCount in 0..4) { "Invalid arc private player count" }
         val privateClues = linkedMapOf<String, Set<String>>()
         repeat(privatePlayerCount) {
             val playerId = data.readUTF()
-            require(playerId == "p1" || playerId == "p2") { "Invalid arc private player" }
+            require(playerId in HUMAN_PLAYER_IDS) { "Invalid arc private player" }
             require(playerId !in privateClues) { "Duplicate arc private player" }
             val clueCount = data.readInt()
             require(clueCount in 0..10_000) { "Invalid arc private clue count" }
@@ -382,11 +382,12 @@ object WorldStateCodec {
         }
 
         val actedCount = data.readInt()
-        require(actedCount in 0..2) { "Invalid arc acted count" }
+        require(actedCount in 0..4) { "Invalid arc acted count" }
         val acted = linkedSetOf<String>()
         repeat(actedCount) {
             val playerId = data.readUTF()
-            require(playerId == "p1" || playerId == "p2") { "Invalid arc acted player" }
+            require(playerId in HUMAN_PLAYER_IDS) { "Invalid arc acted player" }
+            require(playerId in privateClues) { "Arc action player is not a participant" }
             require(acted.add(playerId)) { "Duplicate arc acted player" }
         }
         return ArcState(
@@ -396,10 +397,7 @@ object WorldStateCodec {
             archetype = archetype,
             phase = phase,
             sharedFlags = shared,
-            privateClues = mapOf(
-                "p1" to privateClues["p1"].orEmpty(),
-                "p2" to privateClues["p2"].orEmpty(),
-            ),
+            privateClues = privateClues,
             actedThisPhase = acted,
             escalation = escalation,
         )
