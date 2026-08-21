@@ -9,6 +9,7 @@ import grandlineduo.game.combat.CombatStatus
 import grandlineduo.game.quest.QuestDefinition
 import grandlineduo.game.quest.QuestProgress
 import grandlineduo.game.quest.QuestStatus
+import grandlineduo.game.quest.QuestType
 import grandlineduo.game.scenario.StormglassCayScenario
 import grandlineduo.game.powers.PowerTechniqueEngine
 import grandlineduo.game.ship.VoyageAction
@@ -155,13 +156,27 @@ object GamePresenter {
             }
             board.active.toSortedMap().values.forEach { progress ->
                 when (progress.status) {
-                    QuestStatus.ACTIVE -> add(
-                        GameAction(
-                            "PROGRESS|${progress.definition.questId}|1",
-                            "Registrar progresso • ${progress.definition.title}",
-                            "QUEST",
-                        )
-                    )
+                    QuestStatus.ACTIVE -> {
+                        if (progress.definition.type == QuestType.BOSS) {
+                            if (world.activeCombat == null) {
+                                add(
+                                    GameAction(
+                                        "START_BOSS|${progress.definition.questId}|1",
+                                        "Enfrentar alvo • ${progress.definition.title}",
+                                        "QUEST",
+                                    )
+                                )
+                            }
+                        } else {
+                            add(
+                                GameAction(
+                                    "PROGRESS|${progress.definition.questId}|1",
+                                    "Registrar progresso • ${progress.definition.title}",
+                                    "QUEST",
+                                )
+                            )
+                        }
+                    }
                     QuestStatus.READY_TO_TURN_IN -> add(
                         GameAction(
                             "TURN_IN|${progress.definition.questId}|1",
