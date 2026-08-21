@@ -11,6 +11,7 @@ import grandlineduo.game.powers.PowerTechniqueEngine
 import grandlineduo.game.pvp.TrainingDuelAction
 import grandlineduo.game.pvp.TrainingDuelEngine
 import grandlineduo.game.pvp.TrainingDuelStatus
+import grandlineduo.game.pvp.TrainingDuelVenue
 import grandlineduo.game.ship.VoyageAction
 import grandlineduo.game.world.ExplorationCombatEngine
 import grandlineduo.game.world.ExplorationDirection
@@ -23,6 +24,7 @@ import grandlineduo.game.world.ExplorationQuestEngine
 import grandlineduo.game.world.ExplorationQuestStatus
 import grandlineduo.game.world.GridPosition
 import grandlineduo.game.world.GrandLineWorldAtlas
+import kotlin.math.abs
 
 enum class GameScreen {
     CHARACTER_CREATION,
@@ -275,22 +277,34 @@ object GamePresenter {
                 }
             }
         }
+        val isFieldSparring = duel?.venue == TrainingDuelVenue.FIELD_SPARRING
         val duelContext = when (duel?.status) {
             TrainingDuelStatus.CHALLENGED -> when (actorId) {
-                duel.challengerId ->
+                duel.challengerId -> if (isFieldSparring) {
+                    "SPARRING • convite enviado a ${duelRival?.name ?: duel.opponentId.uppercase()}. Aguardando resposta."
+                } else {
                     "DUELO DE TREINO • desafio enviado a ${duelRival?.name ?: duel.opponentId.uppercase()}. Aguardando resposta na arena."
-                duel.opponentId ->
+                }
+                duel.opponentId -> if (isFieldSparring) {
+                    "SPARRING • ${duelRival?.name ?: duel.challengerId.uppercase()} convidou você para combate não letal. Aceite ou recuse."
+                } else {
                     "DUELO DE TREINO • ${duelRival?.name ?: duel.challengerId.uppercase()} desafiou você. Aceite ou recuse o combate não letal."
+                }
                 else -> {
                     val challengerName = world.players[duel.challengerId]?.name ?: duel.challengerId.uppercase()
                     val opponentName = world.players[duel.opponentId]?.name ?: duel.opponentId.uppercase()
-                    "DUELO DE TREINO • ${duel.challengerId.uppercase()} $challengerName desafiou ${duel.opponentId.uppercase()} $opponentName. Você está assistindo."
+                    if (isFieldSparring) {
+                        "SPARRING • ${duel.challengerId.uppercase()} $challengerName convidou ${duel.opponentId.uppercase()} $opponentName. Você está assistindo."
+                    } else {
+                        "DUELO DE TREINO • ${duel.challengerId.uppercase()} $challengerName desafiou ${duel.opponentId.uppercase()} $opponentName. Você está assistindo."
+                    }
                 }
             }
             TrainingDuelStatus.ACTIVE -> if (duelRivalId == null) {
                 val challengerName = world.players[duel.challengerId]?.name ?: duel.challengerId.uppercase()
                 val opponentName = world.players[duel.opponentId]?.name ?: duel.opponentId.uppercase()
-                "DUELO EM ANDAMENTO • ${duel.challengerId.uppercase()} $challengerName vs ${duel.opponentId.uppercase()} $opponentName • rodada ${duel.round}. Você está assistindo."
+                val prefix = if (isFieldSparring) "SPARRING EM ANDAMENTO" else "DUELO EM ANDAMENTO"
+                "$prefix • ${duel.challengerId.uppercase()} $challengerName vs ${duel.opponentId.uppercase()} $opponentName • rodada ${duel.round}. Você está assistindo."
             } else {
                 val ownHp = duel.duelHp[actorId] ?: 0
                 val rivalHp = duel.duelHp[duelRivalId] ?: 0
@@ -299,7 +313,8 @@ object GamePresenter {
                 } else {
                     " Escolha sua ação; a rodada resolve quando ambos decidirem."
                 }
-                "DUELO • rodada ${duel.round} • você $ownHp PV • rival $rivalHp PV.$waiting"
+                val prefix = if (isFieldSparring) "SPARRING" else "DUELO"
+                "$prefix • rodada ${duel.round} • você $ownHp PV • rival $rivalHp PV.$waiting"
             }
             null -> null
         }
@@ -308,10 +323,10 @@ object GamePresenter {
             if (duel != null) {
                 when (duel.status) {
                     TrainingDuelStatus.CHALLENGED -> if (actorId == duel.opponentId) {
-                        add(GameAction("", "Aceitar duelo", "DUEL_ACCEPT"))
-                        add(GameAction("", "Recusar duelo", "DUEL_DECLINE"))
+                        add(GameAction("", if (isFieldSparring) "Aceitar sparring" else "Aceitar duelo", "DUEL_ACCEPT"))
+                        add(GameAction("", if (isFieldSparring) "Recusar sparring" else "Recusar duelo", "DUEL_DECLINE"))
                     } else if (actorId == duel.challengerId) {
-                        add(GameAction("", "Cancelar desafio", "DUEL_CANCEL"))
+                        add(GameAction("", if (isFieldSparring) "Cancelar convite" else "Cancelar desafio", "DUEL_CANCEL"))
                     }
                     TrainingDuelStatus.ACTIVE -> if (actorId == duel.challengerId || actorId == duel.opponentId) {
                         if (actorId !in duel.lockedActions) {
@@ -319,7 +334,7 @@ object GamePresenter {
                                 add(GameAction(action.name, duelActionLabel(action), "DUEL_ACTION"))
                             }
                         }
-                        add(GameAction("", "Desistir do duelo", "DUEL_FORFEIT"))
+                        add(GameAction("", if (isFieldSparring) "Encerrar sparring" else "Desistir do duelo", "DUEL_FORFEIT"))
                     }
                 }
             } else {
@@ -345,6 +360,27 @@ object GamePresenter {
                 }
                 if (pickup != null) {
                     add(GameAction(pickup.id, "Coletar cache de suprimentos", "LOOT_COLLECT"))
+                }
+
+                if (interaction != ExplorationInteraction.TRAINING) {
+                    world.players.values
+                        .asSequence()
+                        .filter { it.playerId != actorId }
+                        .filter { it.profile != null }
+                        .filter { rival ->
+                            val rivalPosition = ExplorationEngine.position(world, rival.playerId)
+                            abs(playerPosition.x - rivalPosition.x) + abs(playerPosition.y - rivalPosition.y) == 1
+                        }
+                        .sortedBy { it.playerId }
+                        .forEach { rival ->
+                            add(
+                                GameAction(
+                                    rival.playerId,
+                                    "Convidar ${rival.name} (${rival.playerId.uppercase()}) para sparring",
+                                    "DUEL_FIELD_CHALLENGE",
+                                )
+                            )
+                        }
                 }
 
                 when (interaction) {
