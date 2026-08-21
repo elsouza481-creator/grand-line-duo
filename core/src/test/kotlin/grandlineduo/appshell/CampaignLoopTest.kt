@@ -61,9 +61,11 @@ object CampaignLoopTest {
                             GameScreen.ARC -> session.submitArcChoice(view.actions.first().id)
                             GameScreen.COMBAT -> {
                                 val combat = world.activeCombat ?: StormglassPersistenceAdapter.decode(world).combat!!
-                                val action = if (combat.telegraph.targetPlayerId == "p1" && combat.telegraph.type == EnemyAttackType.HEAVY_STRIKE) {
-                                    CombatActionType.DODGE
-                                } else CombatActionType.SETUP
+                                val action = when {
+                                    combat.telegraph.targetPlayerId == "p1" && combat.telegraph.type == EnemyAttackType.HEAVY_STRIKE -> CombatActionType.DODGE
+                                    combat.telegraph.targetPlayerId == "p1" && combat.telegraph.type == EnemyAttackType.SWEEP -> CombatActionType.DEFEND
+                                    else -> CombatActionType.SETUP
+                                }
                                 session.submitCombatAction(action)
                                 val afterCombat = session.worldState().activeCombat
                                 if (afterCombat?.status == CombatStatus.DEFEAT) {
