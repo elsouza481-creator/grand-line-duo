@@ -198,21 +198,23 @@ class GameSessionCoordinator(private val saveRoot: Path? = null) : Closeable {
             completeCampaign()
             return worldState()
         }
+        if (mode == SessionMode.SOLO) autoRecoverSoloCompanion()
+        val preparedWorld = worldState()
         val target = CAMPAIGN_ISLANDS[chapter]
         val incidentType = VoyageIncidentType.entries[chapter % VoyageIncidentType.entries.size]
         val encounter = VoyageEncounter(
             VoyageIncident(
                 type = incidentType,
                 severity = (1 + chapter / 2).coerceAtMost(4),
-                seed = campaignSeed(world.campaignId) xor (chapter.toLong() * 7919L),
+                seed = campaignSeed(preparedWorld.campaignId) xor (chapter.toLong() * 7919L),
             )
         )
-        val flags = world.worldFlags + mapOf(
+        val flags = preparedWorld.worldFlags + mapOf(
             "campaign.pendingIsland" to target,
             "campaign.traveling" to "true",
         )
         replaceHostWorld(
-            next = world.copy(activeVoyage = encounter, worldFlags = flags),
+            next = preparedWorld.copy(activeVoyage = encounter, worldFlags = flags),
             prefix = "campaign-sail",
             fingerprint = "campaign-sail|$chapter|$target",
             metadata = mapOf("meta.campaignSail" to target),
@@ -236,11 +238,11 @@ class GameSessionCoordinator(private val saveRoot: Path? = null) : Closeable {
     fun submitQuestAction(action: String, questId: String = "", amount: Int = 1): WorldState {
         sendGameplay(
             GameplayWireCommand.QuestAction(
-  commandId = nextCommandId("quest"),
-  actorId = actorId,
-  actionType = action,
-  questId = questId,
-  amount = amount,
+                commandId = nextCommandId("quest"),
+                actorId = actorId,
+                actionType = action,
+                questId = questId,
+                amount = amount,
             )
         )
         return worldState()
@@ -326,6 +328,31 @@ class GameSessionCoordinator(private val saveRoot: Path? = null) : Closeable {
         } catch (e: Exception) {
             lastError = e.message
             throw e
+        }
+    }
+
+    private fun autoRecoverSoloCompanion() {
+        val host = hostReplica ?: return
+        repeat(8) {
+            val world = host.state
+            val player = world.players["p2"] ?: return
+            if (player.hp >= player.maxHp) return
+            val inventory = grandlineduo.game.InventoryEngine.read(world, "p2")
+            val itemId = when {
+                (inventory.items["bandage"] ?: 0) > 0 -> "bandage"
+                (inventory.items["ration"] ?: 0) > 0 -> "ration"
+                else -> return
+            }
+            handler!!.handle(
+                GameplayWireCommand.InventoryAction(
+                    commandId = nextCommandId("ai-recovery"),
+                    actorId = "p2",
+                    actionType = "USE",
+                    target = itemId,
+                    amount = 1,
+                ),
+                System.currentTimeMillis(),
+            )
         }
     }
 
