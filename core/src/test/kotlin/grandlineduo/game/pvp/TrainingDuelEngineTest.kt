@@ -4,6 +4,7 @@ import grandlineduo.core.model.PlayerState
 import grandlineduo.core.model.WorldState
 import grandlineduo.game.world.ExplorationEngine
 import grandlineduo.game.world.ExplorationInteraction
+import grandlineduo.game.world.GridPosition
 import grandlineduo.test.assertEquals
 import grandlineduo.test.assertTrue
 import grandlineduo.test.test
@@ -67,6 +68,42 @@ object TrainingDuelEngineTest {
             assertEquals(22, world.players.getValue("p4").hp)
             assertEquals(30, world.players.getValue("p1").hp)
             assertEquals(24, world.players.getValue("p2").hp)
+        }
+
+        test("adjacent players can accept a nonlethal field spar without changing arena record") {
+            var world = fourPlayerWorld("duel-field-spar").copy(partyBerries = 9_000)
+            val map = ExplorationEngine.mapFor(world.campaignId, world.islandId)
+            val first = map.spawn
+            val second = GridPosition(first.x + 1, first.y)
+            world = ExplorationEngine.place(world, "p3", first)
+            world = ExplorationEngine.place(world, "p4", second)
+
+            var distantRejected = false
+            try {
+                val distant = ExplorationEngine.place(world, "p4", GridPosition(first.x + 3, first.y))
+                TrainingDuelEngine.challengeAdjacent(distant, "p3", "p4")
+            } catch (_: IllegalArgumentException) {
+                distantRejected = true
+            }
+            assertTrue(distantRejected)
+
+            val berriesBefore = world.partyBerries
+            val p3HpBefore = world.players.getValue("p3").hp
+            val p4HpBefore = world.players.getValue("p4").hp
+            world = TrainingDuelEngine.challengeAdjacent(world, "p3", "p4")
+            val pending = requireNotNull(TrainingDuelEngine.state(world))
+            assertEquals(TrainingDuelVenue.FIELD_SPARRING, pending.venue)
+
+            world = TrainingDuelEngine.accept(world, "p4")
+            world = TrainingDuelEngine.forfeit(world, "p4")
+
+            assertEquals(null, TrainingDuelEngine.state(world))
+            assertEquals("p3", TrainingDuelEngine.lastWinner(world))
+            assertEquals(TrainingDuelRecord(), TrainingDuelEngine.record(world, "p3"))
+            assertEquals(TrainingDuelRecord(), TrainingDuelEngine.record(world, "p4"))
+            assertEquals(berriesBefore, world.partyBerries)
+            assertEquals(p3HpBefore, world.players.getValue("p3").hp)
+            assertEquals(p4HpBefore, world.players.getValue("p4").hp)
         }
 
         test("training duel resolves locked actions simultaneously without touching persistent hp") {
