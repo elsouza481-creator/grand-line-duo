@@ -80,5 +80,87 @@ object TrainingDuelLanIntegrationTest {
                 }
             }
         }
+
+        test("P3 selects P4 and resolves a private training duel over real TCP") {
+            var initial = WorldState(
+                campaignId = "duel-lan-four",
+                islandId = "stormglass-cay",
+                players = mapOf(
+                    "p1" to PlayerState("p1", "Kairo", 30, 30, 0),
+                    "p2" to PlayerState("p2", "Namiya", 24, 24, 0),
+                    "p3" to PlayerState("p3", "Cato", 28, 28, 0),
+                    "p4" to PlayerState("p4", "Dara", 22, 22, 0),
+                ),
+            )
+            val training = ExplorationEngine.mapFor(initial.campaignId, initial.islandId)
+                .interactions.entries.single { it.value == ExplorationInteraction.TRAINING }.key
+            listOf("p1", "p2", "p3", "p4").forEach { playerId ->
+                initial = ExplorationEngine.place(initial, playerId, training)
+            }
+
+            val host = HostReplica(initial)
+            val handler = StormglassGameplayCommandHandler(host, seed = 72L)
+            val p3Replica = ClientReplica(initial)
+            val p4Replica = ClientReplica(initial)
+
+            LanHostServer(host, port = 0, gameplayCommandHandler = handler).use { server ->
+                server.start()
+                LanClientConnection("127.0.0.1", server.boundPort, "p3", p3Replica).use { p3 ->
+                    LanClientConnection("127.0.0.1", server.boundPort, "p4", p4Replica).use { p4 ->
+                        p3.connect()
+                        p4.connect()
+
+                        p3.sendGameplay(
+                            GameplayWireCommand.WorldAction(
+                                "duel-p3-challenge-p4",
+                                "p3",
+                                "DUEL_CHALLENGE",
+                                "p4",
+                            ),
+                        )
+                        p4.refresh()
+                        val pending = requireNotNull(TrainingDuelEngine.state(host.state))
+                        assertEquals("p3", pending.challengerId)
+                        assertEquals("p4", pending.opponentId)
+
+                        p4.sendGameplay(
+                            GameplayWireCommand.WorldAction("duel-p4-accept", "p4", "DUEL_ACCEPT"),
+                        )
+                        p3.refresh()
+                        val active = requireNotNull(TrainingDuelEngine.state(host.state))
+                        assertEquals(setOf("p3", "p4"), active.duelHp.keys)
+
+                        p3.sendGameplay(
+                            GameplayWireCommand.WorldAction("duel-p3-attack", "p3", "DUEL_ACTION", "ATTACK"),
+                        )
+                        p4.refresh()
+                        p4.sendGameplay(
+                            GameplayWireCommand.WorldAction("duel-p4-defend", "p4", "DUEL_ACTION", "DEFEND"),
+                        )
+                        p3.refresh()
+
+                        val resolved = requireNotNull(TrainingDuelEngine.state(host.state))
+                        assertEquals(2, resolved.round)
+                        assertEquals(setOf("p3", "p4"), resolved.duelHp.keys)
+                        assertEquals(28, host.state.players.getValue("p3").hp)
+                        assertEquals(22, host.state.players.getValue("p4").hp)
+                        assertEquals(30, host.state.players.getValue("p1").hp)
+                        assertEquals(24, host.state.players.getValue("p2").hp)
+
+                        p4.refresh()
+                        assertEquals(host.state, p3Replica.state)
+                        assertEquals(host.state, p4Replica.state)
+                        assertEquals(
+                            CanonicalStateHasher.hash(host.state),
+                            CanonicalStateHasher.hash(p3Replica.state),
+                        )
+                        assertEquals(
+                            CanonicalStateHasher.hash(host.state),
+                            CanonicalStateHasher.hash(p4Replica.state),
+                        )
+                    }
+                }
+            }
+        }
     }
 }
