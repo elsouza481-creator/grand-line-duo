@@ -544,7 +544,14 @@ class GameSessionCoordinator(private val saveRoot: Path? = null) : Closeable {
         if (scenario.stage == grandlineduo.game.scenario.ScenarioStage.COMPLETE && world.worldFlags["reward.stormglass"] != "true") {
             var rewarded = grandlineduo.game.InventoryEngine.grant(world, "p1", "stormglass_log_pose", 1)
             rewarded = grandlineduo.game.InventoryEngine.grant(rewarded, "p1", "reinforced_coat", 1)
-            rewarded = grandlineduo.game.InventoryEngine.grant(rewarded, "p2", "bandage", 2)
+            world.players.values
+                .asSequence()
+                .filter { it.profile != null && it.playerId != "p1" && it.playerId in HUMAN_PLAYER_IDS }
+                .map { it.playerId }
+                .sorted()
+                .forEach { playerId ->
+                    rewarded = grandlineduo.game.InventoryEngine.grant(rewarded, playerId, "bandage", 2)
+                }
             rewarded = awardPartyEvolutionPoints(rewarded, 2)
             rewarded = rewarded.copy(
                 partyBerries = rewarded.partyBerries + 12_000L,
