@@ -7,21 +7,30 @@ import java.util.Random
 object ArcBossFactory {
     fun create(world: WorldState, arc: ArcState): CombatState {
         require(arc.phase == ArcPhase.AFTERMATH || arc.phase == ArcPhase.CLIMAX) { "Arc is not at climax" }
-        val p1 = world.players["p1"] ?: throw IllegalArgumentException("Missing p1")
-        val p2 = world.players["p2"] ?: throw IllegalArgumentException("Missing p2")
+        val party = world.players
+            .filterKeys { it in HUMAN_PLAYER_IDS }
+            .toSortedMap()
+        require("p1" in party) { "Missing p1" }
+        require("p2" in party) { "Missing p2" }
+        require(party.size in 2..4) { "Arc boss requires two to four human players" }
+
         val spec = specFor(arc.archetype)
         val scholarTier = ClassMasteryArcResolver.scholarAnalysisTier(arc.sharedFlags)
         val hp = (spec.baseHp + arc.escalation * 8 - scholarTier * 6).coerceIn(1, 220)
         val attack = (spec.baseAttack + (arc.escalation + 1) / 2 - scholarTier).coerceIn(1, 28)
         val random = Random(combatSeed(arc))
-        val target = if (random.nextBoolean()) "p1" else "p2"
+        val partyIds = party.keys.toList()
+        val target = if (partyIds == listOf("p1", "p2")) {
+            if (random.nextBoolean()) "p1" else "p2"
+        } else {
+            partyIds[random.nextInt(partyIds.size)]
+        }
         val type = if (random.nextBoolean()) EnemyAttackType.HEAVY_STRIKE else EnemyAttackType.SWEEP
         return CombatState(
             round = 1,
-            players = mapOf(
-                "p1" to Combatant("p1", p1.name, p1.hp, p1.maxHp),
-                "p2" to Combatant("p2", p2.name, p2.hp, p2.maxHp),
-            ),
+            players = party.mapValues { (id, player) ->
+                Combatant(id, player.name, player.hp, player.maxHp)
+            },
             enemy = EnemyCombatant(spec.id, spec.name, hp, hp, attack),
             telegraph = EnemyTelegraph(type, target),
             status = CombatStatus.ACTIVE,
@@ -40,4 +49,6 @@ object ArcBossFactory {
         ArcArchetype.RUINS_MYSTERY -> BossSpec("basalt-guardian", "Guardião de Basalto", 150, 16)
         ArcArchetype.ISLAND_CRISIS -> BossSpec("crisis-enforcer", "Carrasco da Ruptura", 122, 17)
     }
+
+    private val HUMAN_PLAYER_IDS = setOf("p1", "p2", "p3", "p4")
 }
