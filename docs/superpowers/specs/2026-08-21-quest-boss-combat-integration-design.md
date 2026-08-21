@@ -13,11 +13,12 @@ In scope:
 - deterministic boss generation from an accepted BOSS quest;
 - an explicit player action to start the accepted boss fight;
 - authoritative combat in solo, host co-op and P2 LAN sessions;
+- ordinary combat actions plus Haki/Devil Fruit power actions;
 - automatic quest progression on legitimate boss victory;
 - automatic quest failure on party defeat;
 - persistence/reconnect/idempotency for the quest-to-combat binding;
 - Android quest presentation action for starting the boss encounter;
-- tests for factory scaling, lifecycle, persistence and real TCP convergence.
+- tests for factory scaling, lifecycle, powers, persistence and real TCP convergence.
 
 Out of scope:
 
@@ -46,6 +47,7 @@ Add two focused quest-combat components:
    - Host-only authority analogous to `ArcCombatCoordinator`.
    - Starts a boss fight for one accepted BOSS quest.
    - Submits ordinary `CombatActionType` actions through the existing `CombatEngine` and `CombatModifierResolver`.
+   - Accepts an already prepared power action/world from `PowerTechniqueEngine` so energy/mastery changes and combat resolution are committed atomically in the same authoritative event.
    - Persists every accepted command through the existing `HostReplica` and durable/snapshot store path.
    - On VICTORY: clears `activeCombat`, removes the quest-combat binding, and advances that quest by its full required amount so it becomes `READY_TO_TURN_IN`.
    - On DEFEAT: keeps the terminal combat state for the existing hardcore/game-over presentation, removes the quest-combat binding, and moves the contract id to permanent failed history. The authoritative event metadata records the boss-defeat reason; no quest reward is granted.
@@ -87,7 +89,7 @@ Flow:
 3. Player can prepare equipment/consumables while no combat is active.
 4. Player presses `START_BOSS`.
 5. Host validates the contract and creates deterministic `activeCombat` + `quest.boss.active=<questId>`.
-6. Existing combat UI and `CombatAction` commands take over.
+6. Existing combat UI plus `CombatAction` and `PowerAction` commands take over.
 7. Victory automatically progresses the contract to `READY_TO_TURN_IN`.
 8. Player returns to the contract board and explicitly turns it in to receive rewards.
 9. Defeat permanently fails the contract and preserves the existing hardcore defeat path.
@@ -98,14 +100,14 @@ Manual `PROGRESS` is rejected for BOSS quests so a boss contract cannot be compl
 
 Extend existing `GameplayWireCommand.QuestAction` handling with `START_BOSS` rather than adding a new wire command subtype.
 
-`StormglassGameplayCommandHandler` routing becomes source-aware for `CombatAction` when `activeCombat != null`:
+`StormglassGameplayCommandHandler` becomes source-aware whenever `activeCombat != null`:
 
-- if `worldFlags["quest.boss.active"]` is present -> `QuestBossCoordinator.submitAction(...)`;
-- otherwise -> existing `ArcCombatCoordinator.submitAction(...)`.
+- ordinary `CombatAction`: if `worldFlags["quest.boss.active"]` is present -> `QuestBossCoordinator.submitAction(...)`; otherwise -> existing `ArcCombatCoordinator.submitAction(...)`;
+- `PowerAction`: run the existing `PowerTechniqueEngine.prepare(...)` first; if `quest.boss.active` is present, pass the prepared world/action plus power metadata to `QuestBossCoordinator.submitPreparedAction(...)`; otherwise preserve the existing arc-boss power path.
 
-If `quest.boss.active` is present but does not resolve to a valid active BOSS quest, reject the combat command rather than falling back to arc combat.
+If `quest.boss.active` is present but does not resolve to a valid active BOSS quest, reject either combat command rather than falling back to arc combat.
 
-This keeps Android, solo and LAN clients on the same already-versioned gameplay command protocol.
+This keeps Android, solo and LAN clients on the same already-versioned gameplay command protocol and preserves power energy/mastery accounting.
 
 ## Boss scaling
 
@@ -128,7 +130,7 @@ The same quest id, world state inputs and campaign seed must always produce the 
 - `START_BOSS` for an offered/resolved/foreign-island quest: reject with no mutation.
 - `START_BOSS` during active combat/voyage: reject with no mutation.
 - manual `PROGRESS` on a BOSS quest: reject with no mutation.
-- combat command without a valid bound quest while `quest.boss.active` is set: reject rather than silently falling back to arc combat.
+- combat or power command without a valid bound quest while `quest.boss.active` is set: reject rather than silently falling back to arc combat.
 - duplicate command ids remain idempotent through the existing event history.
 - turn-in remains the only operation that grants quest rewards.
 - failed quest persistence remains the existing permanent failed-id history; the boss-defeat reason is event metadata, not a new snapshot field.
@@ -161,6 +163,7 @@ Use TDD in four layers.
    - valid accepted BOSS starts combat and persists binding;
    - non-BOSS/invalid state is rejected without mutation;
    - ordinary combat actions use existing modifiers;
+   - prepared Haki/Devil Fruit action preserves energy/mastery changes and resolves against the quest boss;
    - victory clears combat and advances quest to READY_TO_TURN_IN;
    - defeat permanently fails quest, records event metadata reason and grants no rewards;
    - duplicate commands remain idempotent.
@@ -175,7 +178,8 @@ Use TDD in four layers.
 4. Presenter/coordinator tests
    - BOSS active contract exposes `START_BOSS` and not manual `PROGRESS`;
    - coordinator sends the existing `QuestAction("START_BOSS", questId)` path;
-   - existing narrative arc boss tests remain green.
+   - solo companion responds to quest boss combat through the existing `activeCombat` planner;
+   - existing narrative arc boss and power-combat tests remain green.
 
 Final verification must include the full core suite and, because Android presentation changes, `:app:assembleDebug` against the current PR source.
 
