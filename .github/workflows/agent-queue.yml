@@ -1,0 +1,112 @@
+name: Autonomous development queue
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Only report the next eligible issue without claiming it"
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: grand-line-duo-autonomous-queue
+  cancel-in-progress: false
+
+jobs:
+  select-and-claim:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Ensure lifecycle labels exist
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh label create "agent:ready" --color "2DA44E" --description "Eligible for autonomous development" --force
+          gh label create "agent:working" --color "0969DA" --description "Claimed by the autonomous development queue" --force
+          gh label create "agent:blocked" --color "D1242F" --description "Autonomous work cannot proceed safely" --force
+          gh label create "agent:done" --color "8250DF" --description "Autonomous task completed and merged" --force
+          gh label create "agent:stop" --color "000000" --description "Manual stop marker; automation must ignore this task" --force
+
+      - name: Query ready issues
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh issue list \
+            --state open \
+            --label "agent:ready" \
+            --limit 100 \
+            --json number,labels \
+            > "$RUNNER_TEMP/ready-issues.json"
+
+      - name: Select next eligible issue
+        id: select
+        shell: bash
+        run: |
+          set -euo pipefail
+          issue_number="$(python tools/agent_queue/select_issue.py < "$RUNNER_TEMP/ready-issues.json")"
+          echo "issue_number=$issue_number" >> "$GITHUB_OUTPUT"
+          if [ -z "$issue_number" ]; then
+            echo "No eligible agent:ready issue found." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Selected issue #$issue_number." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Revalidate selected issue
+        if: steps.select.outputs.issue_number != ''
+        id: revalidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ steps.select.outputs.issue_number }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh issue view "$ISSUE_NUMBER" --json number,state,labels > "$RUNNER_TEMP/selected-issue.json"
+          printf '[' > "$RUNNER_TEMP/selected-issue-array.json"
+          cat "$RUNNER_TEMP/selected-issue.json" >> "$RUNNER_TEMP/selected-issue-array.json"
+          printf ']\n' >> "$RUNNER_TEMP/selected-issue-array.json"
+
+          revalidated="$(python tools/agent_queue/select_issue.py < "$RUNNER_TEMP/selected-issue-array.json")"
+          if [ "$revalidated" != "$ISSUE_NUMBER" ]; then
+            echo "Selected issue changed state or labels before claim; exiting safely." >> "$GITHUB_STEP_SUMMARY"
+            echo "eligible=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "eligible=true" >> "$GITHUB_OUTPUT"
+
+      - name: Report dry run
+        if: >-
+          steps.select.outputs.issue_number != '' &&
+          steps.revalidate.outputs.eligible == 'true' &&
+          inputs.dry_run
+        env:
+          ISSUE_NUMBER: ${{ steps.select.outputs.issue_number }}
+        shell: bash
+        run: |
+          echo "Dry run only: issue #$ISSUE_NUMBER remains agent:ready and was not claimed." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Claim issue
+        if: >-
+          steps.select.outputs.issue_number != '' &&
+          steps.revalidate.outputs.eligible == 'true' &&
+          !inputs.dry_run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ steps.select.outputs.issue_number }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh issue edit "$ISSUE_NUMBER" \
+            --add-label "agent:working" \
+            --remove-label "agent:ready"
+          echo "Claimed issue #$ISSUE_NUMBER: agent:ready -> agent:working." >> "$GITHUB_STEP_SUMMARY"
