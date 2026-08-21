@@ -6,6 +6,9 @@ import grandlineduo.game.arc.ArcEngine
 import grandlineduo.game.arc.ArcPhase
 import grandlineduo.game.combat.CombatActionType
 import grandlineduo.game.combat.CombatStatus
+import grandlineduo.game.quest.QuestDefinition
+import grandlineduo.game.quest.QuestProgress
+import grandlineduo.game.quest.QuestStatus
 import grandlineduo.game.scenario.StormglassCayScenario
 import grandlineduo.game.powers.PowerTechniqueEngine
 import grandlineduo.game.ship.VoyageAction
@@ -18,6 +21,7 @@ enum class GameScreen {
     COMBAT,
     VOYAGE,
     HUB,
+    QUESTS,
     END,
     GAME_OVER,
 }
@@ -121,6 +125,63 @@ object GamePresenter {
         )
     }
 
+    fun presentQuests(world: WorldState, actorId: String): GamePresentation {
+        require(actorId == "p1" || actorId == "p2") { "Unknown actor" }
+        val board = world.questBoard
+        val body = buildString {
+            append("Quadro da geração ${board.generationIndex} em ${world.islandId.replace('-', ' ')}.")
+            append("\n\nOFERTAS")
+            if (board.offers.isEmpty()) append("\nNenhum contrato disponível. Atualize o quadro para procurar novas oportunidades.")
+            board.offers.toSortedMap().values.forEach { quest ->
+                append("\n\n")
+                append(questLine(quest))
+                append("\nRecompensa: ").append(rewardLabel(quest))
+            }
+            append("\n\nATIVOS")
+            if (board.active.isEmpty()) append("\nNenhum contrato aceito.")
+            board.active.toSortedMap().values.forEach { progress ->
+                append("\n\n")
+                append(progressLine(progress))
+                append("\nRecompensa: ").append(rewardLabel(progress.definition))
+            }
+            if (board.completedQuestIds.isNotEmpty() || board.failedQuestIds.isNotEmpty()) {
+                append("\n\nHISTÓRICO • concluídos ${board.completedQuestIds.size} • falhos ${board.failedQuestIds.size}")
+            }
+        }
+        val actions = buildList {
+            add(GameAction("REFRESH", "Atualizar quadro de contratos", "QUEST"))
+            board.offers.toSortedMap().values.forEach { quest ->
+                add(GameAction("ACCEPT|${quest.questId}|1", "Aceitar • ${quest.title}", "QUEST"))
+            }
+            board.active.toSortedMap().values.forEach { progress ->
+                when (progress.status) {
+                    QuestStatus.ACTIVE -> add(
+                        GameAction(
+                            "PROGRESS|${progress.definition.questId}|1",
+                            "Registrar progresso • ${progress.definition.title}",
+                            "QUEST",
+                        )
+                    )
+                    QuestStatus.READY_TO_TURN_IN -> add(
+                        GameAction(
+                            "TURN_IN|${progress.definition.questId}|1",
+                            "Entregar contrato • ${progress.definition.title}",
+                            "QUEST",
+                        )
+                    )
+                    else -> Unit
+                }
+            }
+        }
+        return GamePresentation(
+            screen = GameScreen.QUESTS,
+            title = "CONTRATOS DA ILHA",
+            body = body,
+            status = statusFor(world, actorId),
+            actions = actions,
+        )
+    }
+
     private fun combatPresentation(world: WorldState, actorId: String, combat: grandlineduo.game.combat.CombatState): GamePresentation {
         val fighter = combat.players[actorId]
         val already = actorId in combat.lockedActions || fighter?.hp == 0
@@ -147,6 +208,7 @@ object GamePresenter {
     private fun hub(world: WorldState, actorId: String, body: String): GamePresentation {
         val actions = buildList {
             if (actorId == "p1") add(GameAction("SAIL", "Zarpar para a próxima ilha", "CAMPAIGN"))
+            add(GameAction("QUESTS", "Contratos da ilha", "MENU"))
             add(GameAction("INVENTORY", "Inventário e equipamento", "MENU"))
             add(GameAction("SHOP", "Mercado da ilha", "MENU"))
             add(GameAction("SHIP", "Navio e suprimentos", "MENU"))
@@ -161,6 +223,22 @@ object GamePresenter {
             actions,
         )
     }
+
+    private fun questLine(quest: QuestDefinition): String =
+        "[${quest.rarity.name}] ${quest.title} • ${quest.type.name} • alvo ${quest.requiredAmount}"
+
+    private fun progressLine(progress: QuestProgress): String =
+        "[${progress.definition.rarity.name}] ${progress.definition.title} • ${progress.progress}/${progress.definition.requiredAmount} • ${progress.status.name.replace('_', ' ')}"
+
+    private fun rewardLabel(quest: QuestDefinition): String = buildList {
+        if (quest.reward.berries > 0) add("${quest.reward.berries} Berries")
+        if (quest.reward.evolutionPoints > 0) add("${quest.reward.evolutionPoints} PEV")
+        if (quest.reward.itemId != null && quest.reward.itemAmount > 0) add("${quest.reward.itemAmount}× ${quest.reward.itemId}")
+        if (quest.reward.factionId != null && quest.reward.factionStandingDelta != 0) {
+            add("${quest.reward.factionStandingDelta} ${quest.reward.factionId}")
+        }
+        if (quest.reward.worldFlag != null) add("marco ${quest.reward.worldFlag}")
+    }.ifEmpty { listOf("sem recompensa material") }.joinToString(" • ")
 
     private fun statusFor(world: WorldState, actorId: String): List<String> {
         val p = world.players[actorId]
