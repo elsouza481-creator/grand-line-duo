@@ -138,6 +138,7 @@ class StormglassGameplayCommandHandler(
             is GameplayWireCommand.WorldAction -> error("handled above")
             is GameplayWireCommand.PowerAction -> error("handled above")
             is GameplayWireCommand.QuestAction -> error("handled above")
+            is GameplayWireCommand.DuelAction -> throw IllegalArgumentException("Duel lifecycle is not available yet")
         }
         val nextWorld = StormglassPersistenceAdapter.encode(before, transition.scenario, transition.combat)
         val result = hostReplica.submit(
