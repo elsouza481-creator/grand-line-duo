@@ -23,7 +23,6 @@ import grandlineduo.game.powers.HakiType
 import grandlineduo.game.powers.PowerTechniqueEngine
 import grandlineduo.game.scenario.ScenarioStage
 import grandlineduo.game.scenario.ScenarioState
-import grandlineduo.game.ship.ShipState
 import grandlineduo.game.ship.VoyageEncounter
 import grandlineduo.game.ship.VoyageIncident
 import grandlineduo.game.ship.VoyageIncidentType
@@ -38,7 +37,7 @@ object DuelCoordinatorTest {
                 val host = HostReplica(hubWorld("duel-challenge-$index"))
                 val coordinator = DuelCoordinator(host, campaignSeed = 91L)
 
-                val event = coordinator.challenge("challenge-$index", challenger, 1_000 + index)
+                val event = coordinator.challenge("challenge-$index", challenger, 1_000L + index.toLong())
                 val duel = host.state.activeDuel!!
 
                 assertEquals(DuelPhase.PENDING, duel.phase)
@@ -51,7 +50,8 @@ object DuelCoordinatorTest {
         }
 
         test("solo campaign cannot forge a pvp challenge") {
-            val initial = hubWorld("duel-solo").copy(worldFlags = hubWorld("duel-solo").worldFlags + ("campaign.mode" to "SOLO"))
+            val base = hubWorld("duel-solo")
+            val initial = base.copy(worldFlags = base.worldFlags + ("campaign.mode" to "SOLO"))
             val host = HostReplica(initial)
             val coordinator = DuelCoordinator(host, campaignSeed = 92L)
 
@@ -118,7 +118,9 @@ object DuelCoordinatorTest {
 
             cases.forEachIndexed { index, world ->
                 val host = HostReplica(world)
-                val result = runCatching { DuelCoordinator(host, 96L).challenge("blocked-$index", "p1", 6_000 + index) }
+                val result = runCatching {
+                    DuelCoordinator(host, 96L).challenge("blocked-$index", "p1", 6_000L + index.toLong())
+                }
                 assertTrue(result.isFailure, "case $index should reject duel challenge")
             }
         }
