@@ -22,9 +22,9 @@ In scope:
 - non-lethal defeat at 1 HP;
 - no berries, bounty, loot or quest reward for winning;
 - host authority, idempotent commands and canonical-state convergence;
-- save/restart/reconnect support for pending and active duels;
+- save/restart/reconnect support for pending, active and finished duels;
 - real TCP LAN tests;
-- Android presentation for challenge, accept/decline and duel actions.
+- Android presentation for challenge, accept/decline, duel actions and closure.
 
 Out of scope for this slice:
 
@@ -68,34 +68,44 @@ Add a focused `grandlineduo.game.duel` package.
 
 Persistent authoritative state:
 
-- `duelId`: stable deterministic identifier;
+- `duelId`: stable deterministic identifier derived from `campaignId + challenge commandId + challengerId + challengedId`;
 - `challengerId`: P1 or P2;
 - `challengedId`: the other human player;
 - `phase`: `PENDING`, `ACTIVE`, `FINISHED`;
-- `round`: starts at 1 when accepted;
-- `fighters`: map of player id to duel fighter HP/max HP;
+- `round`: 0 while pending, starts at 1 when accepted;
+- `fighters`: empty while pending, then a map of player id to `DuelFighter`;
 - `lockedActions`: map of submitted player actions for the current round;
-- `winnerId`: nullable until finished;
-- `loserId`: nullable until finished;
-- `finishReason`: nullable, initially only `KNOCKOUT`;
-- `startedAtEventId` or equivalent stable origin metadata if required by existing persistence conventions.
+- `winnerId`: nullable until a single-winner finish;
+- `loserId`: nullable until a single-loser finish;
+- `finishReason`: nullable while unfinished, then `KNOCKOUT` or `DOUBLE_KNOCKOUT`.
 
-A `DuelFighter` carries only duel-specific combat values such as current HP/max HP. Character progression, inventory, equipment, energy and mastery remain authoritative in normal `WorldState.players` / profile/inventory systems rather than being duplicated into the duel model.
+`DuelFighter` contains:
+
+- `playerId`;
+- `hp`;
+- `maxHp`;
+- `setupReady: Boolean`.
+
+`setupReady` is explicit persistent state. `SETUP` sets it for that fighter's next offensive action; using `FINISHER` or another offensive action that consumes the setup clears it. This prevents setup behavior from depending on implicit log/history reconstruction.
+
+Character progression, inventory, equipment, energy and mastery remain authoritative in the existing world/profile systems rather than being duplicated into duel state.
 
 ### World integration
 
 Add `activeDuel: DuelState?` to `WorldState`.
 
-A duel is mutually exclusive with activities that already require exclusive player control:
+A duel is mutually exclusive with activities that require exclusive player control:
 
 - `activeCombat` must be null;
 - `activeVoyage` must be null;
-- a duel cannot start while another duel is pending/active;
-- the first slice also rejects duel start during a terminal hardcore defeat state.
+- a second duel cannot start while `activeDuel != null` in any phase;
+- a duel cannot start from a terminal hardcore defeat/game-over state.
+
+An `activeArc` without active combat does not by itself block a duel; the duel is treated as a side activity. Existing arc state must remain untouched.
 
 Pending invitations are persisted as `activeDuel.phase == PENDING` so save/restart and reconnect preserve who challenged whom.
 
-Because this is real structured state, persistence must encode it explicitly rather than hiding it in `worldFlags`.
+Because this is structured gameplay state, persistence must encode it explicitly rather than hiding it in `worldFlags`.
 
 ## Persistence and Hashing
 
@@ -106,8 +116,8 @@ Requirements:
 - old snapshots decode with `activeDuel = null`;
 - new snapshots encode/decode pending, active and finished duel state exactly;
 - `CanonicalStateHasher` includes duel state deterministically;
-- when `activeDuel == null`, legacy campaigns should retain their prior canonical representation/hash behavior where the current hasher's compatibility strategy permits it;
-- all maps/actions are serialized in deterministic player-id order;
+- when `activeDuel == null`, preserve the previous canonical representation/hash behavior using the same compatibility strategy already used by the project;
+- maps/actions serialize in deterministic player-id order;
 - host snapshot, client snapshot and recovered durable state converge byte-for-byte where existing tests require it.
 
 ## Challenge Lifecycle
@@ -119,20 +129,21 @@ Supported lifecycle actions:
 - `CHALLENGE`
 - `ACCEPT`
 - `DECLINE`
+- `CLOSE`
 
-`DuelAction` fingerprints include actor and action type so duplicate command ids remain idempotent through the existing command/event path.
+`DuelAction` fingerprints include actor and action type. `CHALLENGE` does not need an explicit target because this product supports exactly two human players; the opponent is the other human participant resolved by the authoritative session state.
 
 Flow:
 
 1. P1 or P2 selects `Desafiar para duelo`.
-2. Host validates that the session has two human players and no incompatible active activity.
-3. Host creates persisted `DuelState(phase=PENDING)`.
+2. Host validates two-human session state and no incompatible activity.
+3. Host creates persisted `DuelState(phase=PENDING, round=0, fighters=empty)` with deterministic `duelId`.
 4. Challenged player sees `Aceitar duelo` and `Recusar duelo`.
 5. `DECLINE` clears `activeDuel`; no resources change.
-6. `ACCEPT` snapshots both players' current HP/max HP into duel fighters exactly as they are. There is no healing.
+6. `ACCEPT` copies both players' current HP/max HP exactly into `DuelFighter`, with `setupReady=false`; there is no healing.
 7. Phase becomes `ACTIVE`, round 1 begins.
-8. On knockout, the duel moves to `FINISHED`, world/player HP is synchronized with the duel result, and the loser is clamped to 1 HP.
-9. Finished-duel presentation exposes a return/close action that clears `activeDuel` without restoring HP or energy.
+8. On knockout/double knockout, the duel moves to `FINISHED`, player HP is synchronized with the duel result and the non-lethal floor is applied.
+9. `CLOSE` is valid only in `FINISHED`; it clears `activeDuel` without healing or refunding energy.
 
 Challenge creation is rejected in SOLO because P2 there is a deterministic companion rather than a second human participant.
 
@@ -140,9 +151,9 @@ Challenge creation is rejected in SOLO because P2 there is a deterministic compa
 
 The duel uses simultaneous action locking.
 
-Each living fighter submits one action for the current round. Resolution occurs only after both have locked an action.
+Each living fighter submits one action for the current round. Resolution occurs only after both have locked one action.
 
-Use the existing `CombatActionType` vocabulary:
+Reuse the existing `CombatActionType` vocabulary:
 
 - `ATTACK`
 - `DEFEND`
@@ -162,27 +173,34 @@ The first balance pass favors predictable counterplay over maximum complexity:
 
 - `ATTACK`: standard direct damage;
 - `DEFEND`: strongly reduces incoming direct damage;
-- `DODGE`: chance/deterministic roll to avoid or heavily reduce direct attacks based on duel seed + round;
-- `SETUP`: low/no immediate damage and grants a one-round offensive setup bonus represented explicitly in duel state if required;
-- `FINISHER`: high damage; strongest after a prior setup and less efficient when thrown raw;
+- `DODGE`: deterministic seeded avoidance/reduction against direct offense;
+- `SETUP`: low/no immediate damage and sets `setupReady=true` for the fighter's next offensive action;
+- `FINISHER`: high damage, receiving an explicit bonus and consuming `setupReady` when available;
 - `HAKI_BUSOSHOKU`: offensive power action with existing character/equipment modifier contribution;
-- `HAKI_KENBUNSHOKU`: defensive/evasive power action that improves avoidance against the opponent's offensive action;
+- `HAKI_KENBUNSHOKU`: defensive/evasive power action improving avoidance against opponent offense;
 - `HAKI_HAOSHOKU`: high-impact offensive/control action subject to existing unlock/energy rules;
 - `DEVIL_FRUIT`: offensive/special action using existing technique eligibility and energy/mastery accounting.
 
-Exact damage constants belong in the implementation plan/tests, not in this architectural spec, so they can be tuned without changing the subsystem boundaries. The invariant is deterministic resolution from duel seed + round + both locked actions + authoritative modifiers.
+Exact damage constants belong in the implementation plan/tests. The architectural invariant is deterministic resolution from duel seed + round + both locked actions + explicit duel state + authoritative modifiers.
+
+After each resolved non-terminal round:
+
+- increment `round` once;
+- clear `lockedActions`;
+- retain or consume `setupReady` according to the resolved actions;
+- synchronize duel HP to `WorldState.players`.
 
 ### Simultaneous knockout
 
-If both fighters would be reduced below the non-lethal floor in the same round, resolve a draw-like terminal result deterministically instead of granting an arbitrary first-mover advantage.
+If both fighters would fall below the non-lethal floor in the same resolved round, terminate with `finishReason=DOUBLE_KNOCKOUT`, `winnerId=null`, `loserId=null`, and both players at 1 HP.
 
-For this slice, add `finishReason = DOUBLE_KNOCKOUT` and leave both players at 1 HP with no winner/loser.
+No arbitrary action order may decide a simultaneous terminal result.
 
 ## Hidden Choice Semantics
 
-The normal UI must not reveal the opponent's locked action before both players have submitted.
+The official UI must not reveal the opponent's locked action before both players have submitted.
 
-The authoritative host may hold both actions and the replicated state may internally contain the locked actions, but presentation must expose only readiness (`opponent ready`) until resolution.
+The replicated authoritative state may contain `lockedActions`; presentation exposes only readiness (`oponente pronto`) until the round resolves. After resolution, both actions may appear in the round log.
 
 This first LAN slice does **not** claim cryptographic secrecy against a hostile modified client inspecting raw replicated state. Commit/reveal cryptography is explicitly out of scope. The threat model is normal trusted LAN play using the official client.
 
@@ -192,7 +210,7 @@ Reuse existing progression systems rather than duplicating PvP-specific copies.
 
 ### Ordinary actions
 
-`DuelCoordinator` obtains equipment/combat modifiers through the existing resolver and passes them into `DuelEngine`.
+`DuelCoordinator` obtains equipment/combat modifiers through the existing resolver and passes them into `DuelEngine` for the correct fighter only.
 
 ### Power actions
 
@@ -205,12 +223,12 @@ Reuse existing progression systems rather than duplicating PvP-specific copies.
 
 Routing when `activeDuel?.phase == ACTIVE`:
 
-1. prepare the power action on the authoritative world;
+1. prepare the power action on authoritative world state;
 2. translate the prepared technique to the existing `CombatActionType` power category;
 3. pass prepared world + action + metadata into `DuelCoordinator.submitPreparedAction(...)`;
-4. commit energy/mastery and duel resolution atomically in the same authoritative event.
+4. commit energy/mastery and duel action/resolution atomically in the same authoritative event.
 
-A rejected/invalid duel action must not consume energy or increment mastery.
+A rejected or duplicate duel action must not consume energy or increment mastery twice.
 
 Energy spent during a duel remains spent after the duel. There is no automatic restoration.
 
@@ -218,12 +236,13 @@ Energy spent during a duel remains spent after the duel. There is no automatic r
 
 Entering a duel copies each player's current HP exactly. It never heals to max HP.
 
-During active rounds, duel fighter HP is authoritative for the duel. After each resolved round, world player HP is synchronized so save/recovery and the rest of the game remain coherent.
+During active rounds, `DuelFighter.hp` is the duel's combat HP. After each resolved round, player HP in `WorldState.players` is synchronized to the duel HP so persistence and the rest of the game remain coherent.
 
-Non-lethal floor:
+Non-lethal terminal floor:
 
-- a fighter that would reach 0 or below is set to 1 HP when the duel terminates;
-- the opponent retains the HP produced by the resolved round, bounded to at least 1 HP in a double knockout;
+- a fighter that would reach 0 or below is written as 1 HP when the duel terminates;
+- the winner retains HP produced by the resolved round, minimum 1;
+- a double knockout leaves both at 1 HP;
 - no post-duel healing occurs;
 - consumed energy remains consumed;
 - no berries, loot, bounty, quest progress or reputation reward is granted simply for duel victory.
@@ -236,14 +255,13 @@ Add `GameplayWireCommand.DuelAction` and a new wire codec subtype.
 
 Existing `CombatAction` and `PowerAction` are reused while a duel is ACTIVE:
 
-- if `activeDuel?.phase == ACTIVE`, `CombatAction` routes to `DuelCoordinator`;
-- otherwise if `activeCombat != null`, preserve current quest-boss/arc combat routing;
-- `PowerAction` similarly prefers active duel routing only when a valid ACTIVE duel exists;
-- malformed duel state rejects rather than silently falling back to PvE combat.
+- if `activeDuel?.phase == ACTIVE` and `activeCombat == null`, `CombatAction` routes to `DuelCoordinator`;
+- otherwise if `activeDuel == null` and `activeCombat != null`, preserve current quest-boss/arc routing;
+- `PowerAction` follows the same origin rules after authoritative preparation;
+- if duel and PvE combat are both non-null, reject rather than guessing which system owns the command;
+- lifecycle commands (`CHALLENGE`, `ACCEPT`, `DECLINE`, `CLOSE`) route only through `DuelCoordinator`.
 
-Pending/finished duel lifecycle commands use `DuelAction`.
-
-This keeps one action vocabulary for the Android combat controls while maintaining separate authoritative resolution engines.
+This keeps one action vocabulary for Android combat controls while maintaining separate authoritative resolution engines.
 
 ## `DuelCoordinator`
 
@@ -253,15 +271,15 @@ Responsibilities:
 
 - create and validate challenges;
 - accept/decline pending challenges;
+- close finished duels;
 - submit ordinary duel actions;
 - submit prepared power actions atomically;
 - resolve a round only after both fighters lock actions;
-- synchronize HP into `WorldState.players`;
+- synchronize HP into `WorldState.players` after resolution;
 - mark knockout/double-knockout outcomes;
-- close a finished duel;
 - persist through `HostReplica`, snapshot store and durable store;
 - preserve idempotency for repeated command ids;
-- attach useful event metadata such as duel id, phase, round and finish reason.
+- attach event metadata such as duel id, phase, round and finish reason.
 
 It does not own inventory, power unlock logic, LAN transport or Android rendering.
 
@@ -269,17 +287,18 @@ It does not own inventory, power unlock logic, LAN transport or Android renderin
 
 The host is authoritative for all duel state and deterministic resolution.
 
-The duel seed is derived deterministically from campaign seed + duel id, with round-specific random streams. The same authoritative inputs must produce the same result on replay/recovery.
+The duel seed derives from campaign seed + deterministic duel id, with round-specific random streams. The same authoritative inputs must produce the same result on replay/recovery.
 
 Neither player may:
 
 - challenge themselves;
 - accept/decline a challenge not addressed to them;
+- close an unfinished duel;
 - submit two actions in the same round;
-- act after being knocked out;
-- submit a PvP action while the duel is pending or finished;
+- act after the duel is finished;
+- submit a PvP action while pending;
 - use a locked/unowned power technique;
-- start a duel during incompatible PvE/voyage state.
+- start a duel during incompatible PvE combat/voyage state.
 
 ## Solo Behavior
 
@@ -289,7 +308,7 @@ In SOLO:
 
 - do not show `Desafiar para duelo`;
 - any forged `CHALLENGE` command is rejected by host validation;
-- the existing companion planner is never invoked as a PvP opponent;
+- existing companion planner is never invoked as a PvP opponent;
 - PvE combat remains unchanged.
 
 ## Android Presentation
@@ -316,16 +335,16 @@ Challenged player sees:
 
 ### Active duel
 
-Use a dedicated duel presentation mode/screen state if needed by the current presenter architecture, showing:
+Use a dedicated duel presentation mode/screen state if required by current presenter architecture, showing:
 
 - both player names;
 - current HP/max HP;
 - current round;
 - own available actions;
 - own locked/readiness state;
-- opponent readiness without revealing the opponent action before round resolution;
-- last round result/log;
-- available Haki/Devil Fruit techniques through the existing power controls.
+- opponent readiness without revealing opponent action before resolution;
+- last resolved round result/log;
+- available Haki/Devil Fruit techniques through existing power controls.
 
 ### Finished duel
 
@@ -344,23 +363,24 @@ No reward banner is displayed.
 - challenge while combat/voyage/duel is active: reject;
 - accept by wrong actor: reject;
 - decline by wrong actor: reject;
+- close before FINISHED: reject;
 - combat action while phase is not ACTIVE: reject;
 - duplicate action by same player in same round: reject without duplicate resource consumption;
 - invalid/locked power: reject before duel mutation;
-- active duel plus active PvE combat is an invalid state and commands reject rather than guess routing;
+- active duel plus active PvE combat is invalid and commands reject rather than guess routing;
 - closing a duel does not heal or refund energy;
 - duel never grants quest progress/reward by itself;
 - finished non-lethal duel never leaves a player below 1 HP.
 
 ## Wire Compatibility
 
-A new `DuelAction` wire subtype is acceptable because the feature is not representable safely as a quest/world action.
+A new `DuelAction` wire subtype is required because lifecycle semantics do not fit safely into quest/world actions.
 
 Requirements:
 
-- bump/add the next subtype id without renumbering existing subtypes;
+- allocate the next subtype id without renumbering existing subtypes;
 - old command decoding remains unchanged;
-- new clients encode/decode `CHALLENGE`, `ACCEPT`, `DECLINE`, and `CLOSE` lifecycle actions;
+- new clients encode/decode `CHALLENGE`, `ACCEPT`, `DECLINE`, `CLOSE`;
 - active-round ordinary combat continues using existing `CombatAction`;
 - active-round powers continue using existing `PowerAction`.
 
@@ -373,7 +393,7 @@ Use TDD in layers.
 - same seed/state/actions => identical result;
 - attack/defend interaction;
 - dodge/kenbunshoku defensive interaction;
-- setup -> finisher advantage;
+- setup persists explicitly and boosts/gets consumed by finisher;
 - equipment modifiers affect only their owner;
 - Haki/Devil Fruit category modifiers apply correctly;
 - knockout clamps loser to 1 HP;
@@ -383,6 +403,7 @@ Use TDD in layers.
 ### 2. `DuelCoordinatorTest`
 
 - valid P1->P2 and P2->P1 challenge;
+- deterministic duel id from challenge command;
 - solo challenge rejected;
 - wrong player cannot accept/decline;
 - accept copies current HP without healing;
@@ -392,22 +413,24 @@ Use TDD in layers.
 - duplicate commands are idempotent;
 - prepared power consumes energy/mastery exactly once;
 - knockout synchronizes world HP and grants no rewards;
+- double knockout leaves both at 1 HP;
 - close clears duel without healing/refund.
 
 ### 3. Persistence/hash tests
 
 - snapshot round-trip pending duel;
-- snapshot round-trip active duel with one/both locked actions;
+- snapshot round-trip active duel with one/both locked actions and setup state;
 - snapshot round-trip finished duel;
 - legacy snapshot decodes with null duel;
 - canonical hash deterministic regardless of map iteration order;
+- null duel preserves legacy hash behavior;
 - host recovery resumes same duel/round.
 
 ### 4. Handler/presenter tests
 
-- DuelAction routes lifecycle correctly;
-- CombatAction routes to duel before PvE only when duel ACTIVE;
-- PowerAction routes through `PowerTechniqueEngine.prepare` then duel coordinator;
+- `DuelAction` routes lifecycle correctly;
+- `CombatAction` routes to duel only for ACTIVE duel;
+- `PowerAction` routes through `PowerTechniqueEngine.prepare` then duel coordinator;
 - invalid simultaneous duel+PvE state rejects;
 - two-human session shows challenge;
 - solo hides challenge;
@@ -424,7 +447,7 @@ At minimum:
 3. Both submit actions across the real LAN command path.
 4. Host/client converge after each resolved round.
 5. P2 disconnects during an active duel.
-6. Fresh client replica reconnects and restores the authoritative duel/round/HP.
+6. Fresh client replica reconnects and restores authoritative duel/round/HP/locks.
 7. Duel completes after reconnect.
 8. Duplicate final action/close command does not double-apply HP, energy or mastery.
 9. Host/client canonical hashes and snapshots converge.
@@ -435,8 +458,8 @@ Final verification must include:
 
 - entire core test suite;
 - all existing quest boss/arc boss/LAN/persistence tests green;
-- `:app:assembleDebug` against the exact final source head;
-- no temporary verification workflow left in the final PR diff.
+- `:app:assembleDebug` against exact final source head;
+- no temporary verification workflow left in final PR diff.
 
 ## Compatibility and Rollout
 
