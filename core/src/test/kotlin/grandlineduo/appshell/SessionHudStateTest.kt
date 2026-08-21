@@ -63,6 +63,28 @@ object SessionHudStateTest {
                 host.close()
             }
         }
+
+        test("session HUD decorator prepends presence badge without losing gameplay status") {
+            val base = GamePresentation(
+                screen = GameScreen.HUB,
+                title = "Porto",
+                body = "Explore.",
+                status = listOf("PV 20/20", "Berries 5000"),
+            )
+            val hud = SessionHudState(
+                mode = SessionMode.HOST_COOP,
+                localActorId = "p1",
+                networkConnectedCount = 3,
+                maxNetworkPlayers = 4,
+                networkConnectedPlayerIds = setOf("p1", "p2", "p3"),
+                createdPlayerIds = setOf("p1", "p2"),
+            )
+
+            val decorated = SessionHudPresenter.decorate(base, hud)
+            assertEquals(hud.badge, decorated.status.first())
+            assertEquals(listOf("PV 20/20", "Berries 5000"), decorated.status.drop(1))
+            assertEquals(base.copy(status = listOf(hud.badge) + base.status), decorated)
+        }
     }
 
     private fun joinViaDiscovery(host: GameSessionCoordinator, client: GameSessionCoordinator, discoveryPort: Int) {
