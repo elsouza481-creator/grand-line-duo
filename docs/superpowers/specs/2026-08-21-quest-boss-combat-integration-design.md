@@ -26,7 +26,8 @@ Out of scope:
 - free healing or checkpoints;
 - multiple simultaneous quest boss fights;
 - custom boss art/animations;
-- automatic world-map pursuit or encounter navigation.
+- automatic world-map pursuit or encounter navigation;
+- expanding the failed-quest persistence model to store structured failure narratives.
 
 ## Architecture
 
@@ -38,7 +39,7 @@ Add two focused quest-combat components:
    - Output: existing `CombatState`.
    - Uses current P1/P2 HP and max HP exactly as they are; it never heals players.
    - Uses `targetId` as the stable enemy identity and derives a readable enemy name from the quest title/target.
-   - Uses quest rarity to scale HP and attack within bounded values.
+   - Uses quest rarity to select bounded HP and attack values.
    - Initial telegraph/target are deterministic from campaign seed + quest id/target.
 
 2. `QuestBossCoordinator`
@@ -47,7 +48,7 @@ Add two focused quest-combat components:
    - Submits ordinary `CombatActionType` actions through the existing `CombatEngine` and `CombatModifierResolver`.
    - Persists every accepted command through the existing `HostReplica` and durable/snapshot store path.
    - On VICTORY: clears `activeCombat`, removes the quest-combat binding, and advances that quest by its full required amount so it becomes `READY_TO_TURN_IN`.
-   - On DEFEAT: keeps the terminal combat state for the existing hardcore/game-over presentation, removes the quest-combat binding, and moves the contract to permanent failed history with a boss-defeat reason. No quest reward is granted.
+   - On DEFEAT: keeps the terminal combat state for the existing hardcore/game-over presentation, removes the quest-combat binding, and moves the contract id to permanent failed history. The authoritative event metadata records the boss-defeat reason; no quest reward is granted.
 
 `ArcCombatCoordinator` remains unchanged in responsibility: it continues to resolve only combat belonging to an active narrative arc.
 
@@ -77,7 +78,7 @@ This reuses existing snapshot/hash behavior and survives save, restart and recon
 
 A BOSS contract is not launched immediately on ACCEPT. Acceptance preserves the normal contract lifecycle and gives players a preparation window.
 
-For an accepted BOSS quest in `ACTIVE` state, the quest screen exposes a `START_BOSS` quest action (Portuguese label such as `Enfrentar alvo`).
+For an accepted BOSS quest in `ACTIVE` state, the quest screen exposes a `START_BOSS` quest action with the Portuguese label `Enfrentar alvo`.
 
 Flow:
 
@@ -102,24 +103,24 @@ Extend existing `GameplayWireCommand.QuestAction` handling with `START_BOSS` rat
 - if `worldFlags["quest.boss.active"]` is present -> `QuestBossCoordinator.submitAction(...)`;
 - otherwise -> existing `ArcCombatCoordinator.submitAction(...)`.
 
+If `quest.boss.active` is present but does not resolve to a valid active BOSS quest, reject the combat command rather than falling back to arc combat.
+
 This keeps Android, solo and LAN clients on the same already-versioned gameplay command protocol.
 
 ## Boss scaling
 
-Keep scaling deliberately simple and bounded. The factory derives a base tier from rarity and may add a small deterministic pressure adjustment from existing party progression/bounty, but rarity is the dominant input.
+Keep scaling deliberately simple and bounded for this block. Rarity is the only stat-scaling input; party bounty/mastery does not add hidden stat inflation here.
 
-Baseline targets:
-
-| Rarity | HP baseline | Attack baseline |
+| Rarity | HP | Attack |
 | --- | ---: | ---: |
 | COMMON | 72 | 11 |
 | RARE | 108 | 14 |
 | EPIC | 150 | 18 |
 | LEGENDARY | 200 | 22 |
 
-Hard caps prevent generated quest bosses from exceeding the current combat engine's practical range. Bosses inherit no free debuffs or hidden player healing.
+Bosses inherit no free debuffs or hidden player healing. Current player HP is copied into the fight exactly as it exists in `WorldState`.
 
-The same quest id, world state inputs and campaign seed must always produce the same initial boss state.
+The same quest id, world state inputs and campaign seed must always produce the same initial boss state and telegraph.
 
 ## Error handling and invariants
 
@@ -130,6 +131,7 @@ The same quest id, world state inputs and campaign seed must always produce the 
 - combat command without a valid bound quest while `quest.boss.active` is set: reject rather than silently falling back to arc combat.
 - duplicate command ids remain idempotent through the existing event history.
 - turn-in remains the only operation that grants quest rewards.
+- failed quest persistence remains the existing permanent failed-id history; the boss-defeat reason is event metadata, not a new snapshot field.
 
 ## Android presentation
 
@@ -151,7 +153,7 @@ Use TDD in four layers.
 
 1. `QuestBossFactoryTest`
    - deterministic identical output;
-   - rarity scaling ordering and caps;
+   - exact rarity HP/attack tiers;
    - current party HP is carried without healing;
    - target identity is stable.
 
@@ -160,7 +162,7 @@ Use TDD in four layers.
    - non-BOSS/invalid state is rejected without mutation;
    - ordinary combat actions use existing modifiers;
    - victory clears combat and advances quest to READY_TO_TURN_IN;
-   - defeat permanently fails quest and grants no rewards;
+   - defeat permanently fails quest, records event metadata reason and grants no rewards;
    - duplicate commands remain idempotent.
 
 3. `QuestLanIntegrationTest`
