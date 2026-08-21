@@ -95,6 +95,32 @@ object GamePresenterTest {
             assertTrue(presentation.actions.any { it.id == "TURN_IN|ready-1|1" && it.kind == "QUEST" })
         }
 
+        test("boss contract exposes start boss instead of manual progress") {
+            val boss = quest("boss-1", QuestRarity.EPIC, requiredAmount = 1, type = QuestType.BOSS)
+            val hunt = quest("hunt-1", QuestRarity.RARE, requiredAmount = 3)
+            val readyBoss = quest("boss-ready", QuestRarity.LEGENDARY, requiredAmount = 1, type = QuestType.BOSS)
+            val world = profiledWorld().copy(
+                questBoard = QuestBoardState(
+                    active = mapOf(
+                        boss.questId to QuestProgress(boss, QuestStatus.ACTIVE, progress = 0, acceptedBy = "p1"),
+                        hunt.questId to QuestProgress(hunt, QuestStatus.ACTIVE, progress = 1, acceptedBy = "p1"),
+                        readyBoss.questId to QuestProgress(readyBoss, QuestStatus.READY_TO_TURN_IN, progress = 1, acceptedBy = "p2"),
+                    ),
+                ),
+            )
+
+            val presentation = GamePresenter.presentQuests(world, "p1")
+
+            assertTrue(presentation.actions.any {
+                it.id == "START_BOSS|boss-1|1" &&
+                    it.kind == "QUEST" &&
+                    it.label == "Enfrentar alvo • Contrato boss-1"
+            })
+            assertTrue(presentation.actions.none { it.id == "PROGRESS|boss-1|1" })
+            assertTrue(presentation.actions.any { it.id == "PROGRESS|hunt-1|1" })
+            assertTrue(presentation.actions.any { it.id == "TURN_IN|boss-ready|1" })
+        }
+
         test("presenter exposes tactical actions while combat is active") {
             val world = StormglassPersistenceAdapter.encode(
                 profiledWorld(), ScenarioState(stage = grandlineduo.game.scenario.ScenarioStage.MINIBOSS), combat()
@@ -121,11 +147,16 @@ object GamePresenterTest {
         }
     }
 
-    private fun quest(id: String, rarity: QuestRarity, requiredAmount: Int) = QuestDefinition(
+    private fun quest(
+        id: String,
+        rarity: QuestRarity,
+        requiredAmount: Int,
+        type: QuestType = QuestType.HUNT,
+    ) = QuestDefinition(
         questId = id,
         islandId = "stormglass-cay",
         title = "Contrato $id",
-        type = QuestType.HUNT,
+        type = type,
         rarity = rarity,
         issuerFaction = "LOCALS",
         targetId = "corsair",
