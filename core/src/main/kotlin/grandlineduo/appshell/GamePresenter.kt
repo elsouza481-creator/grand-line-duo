@@ -47,6 +47,7 @@ data class ExplorationPresentation(
     val visiblePickups: Set<GridPosition> = emptySet(),
     val visibleEnemies: Set<GridPosition> = emptySet(),
     val trackedBossHuntTarget: GridPosition? = null,
+    val arenaRecord: String? = null,
 )
 
 data class GamePresentation(
@@ -217,6 +218,13 @@ object GamePresenter {
             }
         }
         val duelRival = duelRivalId?.let(world.players::get)
+        val arenaRecord = if (interaction == ExplorationInteraction.TRAINING) {
+            val record = TrainingDuelEngine.record(world, actorId)
+            val forfeitLabel = if (record.forfeits == 1) "desistência" else "desistências"
+            "Arena • ${record.wins}V • ${record.losses}D • ${record.draws}E • ${record.forfeits} $forfeitLabel"
+        } else {
+            null
+        }
         val npc = map.npcs[playerPosition]
         val objective = map.questObjectives[playerPosition]
         val pickup = map.pickups[playerPosition]?.takeUnless { ExplorationLootEngine.isCollected(world, it.id) }
@@ -415,6 +423,7 @@ object GamePresenter {
         val contextualBody = buildList {
             add(body)
             physicalContext?.let(::add)
+            arenaRecord?.let(::add)
             duelContext?.let(::add)
             bossHuntIntel?.let(::add)
             fieldBossIntel?.let(::add)
@@ -434,6 +443,7 @@ object GamePresenter {
                 visiblePickups = visiblePickups,
                 visibleEnemies = visibleEnemies,
                 trackedBossHuntTarget = trackedBossHuntTarget,
+                arenaRecord = arenaRecord,
             ),
         )
     }
