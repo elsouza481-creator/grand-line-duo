@@ -373,6 +373,7 @@ class GameSessionCoordinator(private val saveRoot: Path? = null) : Closeable {
             handler!!.handle(GameplayWireCommand.CombatAction(nextCommandId("ai-combat"), "p2", chosen.name), System.currentTimeMillis())
             return
         }
+        if (activeArcCombat != null) return
 
         val restored = StormglassPersistenceAdapter.decode(host.state)
         val combat = restored.combat
