@@ -49,20 +49,20 @@ object FourPlayerPresentationTest {
             assertTrue(presentation.status.any { it.contains("P3 Player 3") && it.contains("P4 Player 4") })
         }
 
-        test("P3 and P4 observe legacy two-player Stormglass narrative instead of receiving invalid choices") {
+        test("P3 and P4 receive real choices in the four player Stormglass opening") {
             val profiles = profiles(4)
             val world = WorldState(
-                campaignId = "present-four-observer",
+                campaignId = "present-four-opening",
                 islandId = "stormglass-cay",
                 players = players(profiles),
             )
 
             listOf("p3", "p4").forEach { actorId ->
                 val presentation = GamePresenter.present(world, actorId)
-                assertEquals(GameScreen.WAITING_FOR_PARTNER, presentation.screen)
-                assertEquals(emptyList<GameAction>(), presentation.actions)
-                assertTrue(presentation.title.contains("Observando"))
-                assertTrue(presentation.body.contains("P1") && presentation.body.contains("P2"))
+                assertEquals(GameScreen.STORY, presentation.screen)
+                assertTrue(presentation.actions.isNotEmpty())
+                assertTrue(presentation.actions.all { it.kind == "SCENARIO" })
+                assertTrue(!presentation.title.contains("Observando"))
             }
         }
 
