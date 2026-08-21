@@ -1,0 +1,31 @@
+name: Autonomous queue CI
+
+on:
+  pull_request:
+    branches: ["main"]
+    paths:
+      - "tools/agent_queue/**"
+      - ".github/workflows/agent-queue.yml"
+      - ".github/workflows/agent-queue-ci.yml"
+      - ".github/ISSUE_TEMPLATE/agent-task.yml"
+  push:
+    branches: ["main", "agent/**"]
+    paths:
+      - "tools/agent_queue/**"
+      - ".github/workflows/agent-queue.yml"
+      - ".github/workflows/agent-queue-ci.yml"
+      - ".github/ISSUE_TEMPLATE/agent-task.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  selector-tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run autonomous queue selector tests
+        run: python -m unittest discover -s tools/agent_queue -p 'test_*.py' -v
