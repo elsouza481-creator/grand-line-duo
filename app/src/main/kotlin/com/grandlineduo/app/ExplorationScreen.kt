@@ -37,6 +37,9 @@ private object WorldUiColors {
     const val ROAD = 0xFF8D7450L
     const val BUILDING = 0xFF563D3AL
     const val PLAYER = 0xFFFFD45AL
+    const val PLAYER_2 = 0xFF6FD3C8L
+    const val PLAYER_3 = 0xFFFF8F4EL
+    const val PLAYER_4 = 0xFFA889E6L
     const val OUTLINE = 0xFF071017L
     const val MARKER = 0xFFF7F0D8L
     const val NPC = 0xFF6FD3C8L
@@ -159,7 +162,7 @@ class ExplorationScreen(context: Context) : ScrollView(context) {
         ExplorationInteraction.TRAINING -> "✦ Área de treino — progressão disponível aqui"
         ExplorationInteraction.SHIP -> "▰ Navio — manutenção e melhorias disponíveis"
         ExplorationInteraction.CREW -> "● Tripulação — gestão dos companheiros"
-        null -> "Caminhe pelas ruas. NPCs têm !, objetivos ativos ?, caches ◆, inimigos X e chefes de campo B."
+        null -> "Caminhe pelas ruas. P1–P4 mostram sua tripulação; NPCs têm !, objetivos ?, caches ◆, inimigos X e chefes B."
     }
 
     private fun actionButton(label: String, click: () -> Unit) = Button(context).apply {
@@ -203,6 +206,7 @@ private class ExplorationMapView(context: Context) : View(context) {
         viewport = ExplorationViewport.build(
             map = presentation.map,
             playerPosition = presentation.playerPosition,
+            playerPositions = presentation.playerPositions,
             width = 11,
             height = 9,
         )
@@ -213,10 +217,11 @@ private class ExplorationMapView(context: Context) : View(context) {
         val visibleBosses = presentation.visibleEnemies.count { position ->
             presentation.map.enemies[position]?.rank == ExplorationEnemyRank.FIELD_BOSS
         }
+        val partyCount = presentation.playerPositions.size
         val huntDescription = presentation.trackedBossHuntTarget?.let {
             " Caçada rastreada no tile ${it.x}, ${it.y}."
         }.orEmpty()
-        contentDescription = "Mapa da ilha. Posição ${presentation.playerPosition.x}, ${presentation.playerPosition.y}. $npcCount NPC. $activeObjectives objetivo ativo. $visiblePickups cache disponível. $visibleEnemies inimigo hostil, incluindo $visibleBosses chefe de campo.$huntDescription"
+        contentDescription = "Mapa da ilha. Posição ${presentation.playerPosition.x}, ${presentation.playerPosition.y}. $partyCount tripulantes P1 a P4 projetados no mapa. $npcCount NPC. $activeObjectives objetivo ativo. $visiblePickups cache disponível. $visibleEnemies inimigo hostil, incluindo $visibleBosses chefe de campo.$huntDescription"
         invalidate()
     }
 
@@ -327,15 +332,68 @@ private class ExplorationMapView(context: Context) : View(context) {
                 canvas.drawText("!", rect.left + size * 0.22f, baseline, marker)
             }
 
-            if (cell.isPlayer) {
-                fill.color = WorldUiColors.PLAYER.toInt()
-                canvas.drawCircle(rect.centerX(), rect.centerY(), size * 0.28f, fill)
-                stroke.color = Color.WHITE
-                stroke.strokeWidth = maxOf(resources.displayMetrics.density * 1.5f, 2f)
-                canvas.drawCircle(rect.centerX(), rect.centerY(), size * 0.28f, stroke)
-                stroke.strokeWidth = resources.displayMetrics.density
-            }
+            drawPartyMarkers(canvas, rect, size, cell.playerIds, cell.isPlayer)
         }
+    }
+
+    private fun drawPartyMarkers(
+        canvas: Canvas,
+        rect: RectF,
+        size: Float,
+        playerIds: Set<String>,
+        legacyLocalMarker: Boolean,
+    ) {
+        if (playerIds.isEmpty()) {
+            if (!legacyLocalMarker) return
+            fill.color = WorldUiColors.PLAYER.toInt()
+            canvas.drawCircle(rect.centerX(), rect.centerY(), size * 0.28f, fill)
+            stroke.color = Color.WHITE
+            stroke.strokeWidth = maxOf(resources.displayMetrics.density * 1.5f, 2f)
+            canvas.drawCircle(rect.centerX(), rect.centerY(), size * 0.28f, stroke)
+            stroke.strokeWidth = resources.displayMetrics.density
+            return
+        }
+
+        val ids = playerIds.sorted()
+        val radius = if (ids.size == 1) size * 0.25f else size * 0.17f
+        ids.forEachIndexed { index, playerId ->
+            val (offsetX, offsetY) = partyOffset(ids.size, index, size)
+            val centerX = rect.centerX() + offsetX
+            val centerY = rect.centerY() + offsetY
+            fill.color = playerColor(playerId)
+            canvas.drawCircle(centerX, centerY, radius, fill)
+            stroke.color = Color.WHITE
+            stroke.strokeWidth = maxOf(resources.displayMetrics.density * 1.2f, 1.5f)
+            canvas.drawCircle(centerX, centerY, radius, stroke)
+            stroke.strokeWidth = resources.displayMetrics.density
+            marker.color = WorldUiColors.OUTLINE.toInt()
+            marker.textSize = if (ids.size == 1) size * 0.25f else size * 0.19f
+            val baseline = centerY - (marker.ascent() + marker.descent()) / 2f
+            canvas.drawText(playerId.uppercase(), centerX, baseline, marker)
+        }
+    }
+
+    private fun partyOffset(count: Int, index: Int, size: Float): Pair<Float, Float> = when (count) {
+        1 -> 0f to 0f
+        2 -> (if (index == 0) -0.18f else 0.18f) * size to 0f
+        3 -> when (index) {
+            0 -> -0.18f * size to 0.14f * size
+            1 -> 0.18f * size to 0.14f * size
+            else -> 0f to -0.18f * size
+        }
+        else -> {
+            val x = if (index % 2 == 0) -0.17f else 0.17f
+            val y = if (index < 2) -0.17f else 0.17f
+            x * size to y * size
+        }
+    }
+
+    private fun playerColor(playerId: String): Int = when (playerId.lowercase()) {
+        "p1" -> WorldUiColors.PLAYER.toInt()
+        "p2" -> WorldUiColors.PLAYER_2.toInt()
+        "p3" -> WorldUiColors.PLAYER_3.toInt()
+        "p4" -> WorldUiColors.PLAYER_4.toInt()
+        else -> WorldUiColors.MARKER.toInt()
     }
 
     private fun tileColor(tile: ExplorationTile): Int = when (tile) {
