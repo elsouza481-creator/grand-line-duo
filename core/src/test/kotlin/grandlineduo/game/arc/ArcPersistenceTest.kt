@@ -21,6 +21,25 @@ object ArcPersistenceTest {
             assertEquals(state, WorldStateCodec.decode(WorldStateCodec.encode(state)))
         }
 
+        test("current snapshot preserves four-player narrative participants private clues and locked choices") {
+            val participants = setOf("p1", "p2", "p3", "p4")
+            var arc = ArcEngine.start(
+                ArcStartContext(
+                    seed = 88L,
+                    islandId = "ironwake-atoll",
+                    presentFactions = setOf("MARINES"),
+                    worldFlags = setOf("MARINE_RESPONSE_CAPTAIN"),
+                    totalBounty = 22_000_000L,
+                    participantIds = participants,
+                )
+            )
+            arc = ArcEngine.choose(arc, "p3", "shadow_authority").state
+            arc = ArcEngine.choose(arc, "p4", "survey_route").state
+            val state = legacyWorld().copy(activeArc = arc)
+
+            assertEquals(state, WorldStateCodec.decode(WorldStateCodec.encode(state)))
+        }
+
         test("campaign without active arc preserves exact legacy canonical hash") {
             assertEquals(
                 "ea73b0a8d4ca77206fce3925d537a8c8ae56cee64e5dc891ed1a41e469d82062",
