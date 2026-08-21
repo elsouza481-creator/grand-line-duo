@@ -309,11 +309,11 @@ object WorldStateCodec {
             val injurySeverity = data.readInt()
             val status = CrewStatus.valueOf(data.readUTF())
             val affinityCount = data.readInt()
-            require(affinityCount in 0..2) { "Invalid crew affinity count" }
+            require(affinityCount in 0..4) { "Invalid crew affinity count" }
             val affinity = linkedMapOf<String, Int>()
             repeat(affinityCount) {
                 val playerId = data.readUTF()
-                require(playerId == "p1" || playerId == "p2") { "Invalid crew affinity player" }
+                require(playerId in HUMAN_PLAYER_IDS) { "Invalid crew affinity player" }
                 require(playerId !in affinity) { "Duplicate crew affinity player" }
                 affinity[playerId] = data.readInt()
             }
