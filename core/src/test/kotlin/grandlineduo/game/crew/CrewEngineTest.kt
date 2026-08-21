@@ -60,14 +60,22 @@ object CrewEngineTest {
             assertTrue(rejected)
         }
 
-        test("loyalty and per player affinity are clamped to minus one hundred through one hundred") {
+        test("loyalty and four player affinity are clamped to minus one hundred through one hundred") {
             var crew = member("robin", CrewRole.LOOKOUT, loyalty = 95)
             crew = CrewEngine.changeLoyalty(crew, 50)
             assertEquals(100, crew.loyalty)
             crew = CrewEngine.changeAffinity(crew, "p1", -250)
             crew = CrewEngine.changeAffinity(crew, "p2", 250)
+            crew = CrewEngine.changeAffinity(crew, "p3", 75)
+            crew = CrewEngine.changeAffinity(crew, "p4", -80)
             assertEquals(-100, crew.playerAffinity.getValue("p1"))
             assertEquals(100, crew.playerAffinity.getValue("p2"))
+            assertEquals(75, crew.playerAffinity.getValue("p3"))
+            assertEquals(-80, crew.playerAffinity.getValue("p4"))
+
+            var invalidRejected = false
+            try { CrewEngine.changeAffinity(crew, "p5", 1) } catch (_: IllegalArgumentException) { invalidRejected = true }
+            assertTrue(invalidRejected)
         }
 
         test("low loyalty member deserts deterministically during a severe loyalty crisis") {
@@ -92,6 +100,6 @@ object CrewEngineTest {
         role = role,
         competence = competence,
         loyalty = loyalty,
-        playerAffinity = mapOf("p1" to 0, "p2" to 0),
+        playerAffinity = mapOf("p1" to 0, "p2" to 0, "p3" to 0, "p4" to 0),
     )
 }
