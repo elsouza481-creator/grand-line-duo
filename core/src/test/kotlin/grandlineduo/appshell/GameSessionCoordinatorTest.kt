@@ -163,7 +163,7 @@ object GameSessionCoordinatorTest {
                 p3.createCharacter(validDraft("Rika"))
                 p4.createCharacter(validDraft("Bram"))
 
-                completeStormglassForLegacyPair(host, p2)
+                completeStormglassForParty(host, p2, p3, p4)
                 assertEquals(ScenarioStage.COMPLETE, StormglassPersistenceAdapter.decode(host.worldState()).scenario.stage)
                 assertTrue(moveP1ToDock(host), "P1 must reach the physical dock before a four-player voyage")
 
@@ -200,7 +200,6 @@ object GameSessionCoordinatorTest {
             GameSessionCoordinator(root).use { session ->
                 session.startSolo(campaignId = "world-action")
                 session.createCharacter(validDraft("Mira"))
-                // Market is two tiles west and one north from the guaranteed town spawn.
                 session.submitWorldAction("EXPLORE_MOVE", "WEST", 999)
                 session.submitWorldAction("EXPLORE_MOVE", "WEST", 999)
                 session.submitWorldAction("EXPLORE_MOVE", "NORTH", 999)
@@ -228,24 +227,27 @@ object GameSessionCoordinatorTest {
         }
     }
 
-    private fun completeStormglassForLegacyPair(host: GameSessionCoordinator, p2: GameSessionCoordinator) {
+    private fun completeStormglassForParty(
+        host: GameSessionCoordinator,
+        p2: GameSessionCoordinator,
+        p3: GameSessionCoordinator,
+        p4: GameSessionCoordinator,
+    ) {
+        val remotes = mapOf("p2" to p2, "p3" to p3, "p4" to p4)
         var guard = 0
-        while (StormglassPersistenceAdapter.decode(host.worldState()).scenario.stage != ScenarioStage.COMPLETE && guard++ < 80) {
+        while (StormglassPersistenceAdapter.decode(host.worldState()).scenario.stage != ScenarioStage.COMPLETE && guard++ < 120) {
             val restored = StormglassPersistenceAdapter.decode(host.worldState())
             val combat = restored.combat
             if (combat != null) {
-                if ("p1" !in combat.lockedActions && combat.players["p1"]?.hp ?: 0 > 0) {
+                if ("p1" !in combat.lockedActions && (combat.players["p1"]?.hp ?: 0) > 0) {
                     host.submitCombatAction(CombatActionType.SETUP)
                 }
-                p2.refresh()
-                val afterP1 = StormglassPersistenceAdapter.decode(host.worldState()).combat
-                if (afterP1 != null && "p2" !in afterP1.lockedActions && afterP1.players["p2"]?.hp ?: 0 > 0) {
-                    p2.submitCombatAction(CombatActionType.FINISHER)
-                }
-                val afterPair = StormglassPersistenceAdapter.decode(host.worldState()).combat
-                if (afterPair != null && afterPair.lockedActions.keys.containsAll(setOf("p1", "p2"))) {
-                    require(afterPair.players.keys == setOf("p1", "p2")) {
-                        "Legacy Stormglass combat must not wait for observing p3/p4"
+                remotes.forEach { (playerId, client) ->
+                    client.refresh()
+                    val current = StormglassPersistenceAdapter.decode(host.worldState()).combat ?: return@forEach
+                    if (playerId !in current.lockedActions && (current.players[playerId]?.hp ?: 0) > 0) {
+                        val action = if (playerId == "p2") CombatActionType.FINISHER else CombatActionType.ATTACK
+                        client.submitCombatAction(action)
                     }
                 }
                 continue
@@ -255,13 +257,15 @@ object GameSessionCoordinatorTest {
             if (p1View.screen == GameScreen.STORY && p1View.actions.isNotEmpty()) {
                 host.submitScenarioChoice(p1View.actions.first().id)
             }
-            p2.refresh()
-            val p2View = GamePresenter.present(p2.worldState(), "p2")
-            if (p2View.screen == GameScreen.STORY && p2View.actions.isNotEmpty()) {
-                p2.submitScenarioChoice(p2View.actions.first().id)
+            remotes.forEach { (playerId, client) ->
+                client.refresh()
+                val view = GamePresenter.present(client.worldState(), playerId)
+                if (view.screen == GameScreen.STORY && view.actions.isNotEmpty()) {
+                    client.submitScenarioChoice(view.actions.first().id)
+                }
             }
         }
-        assertTrue(guard < 80, "Four-player host must finish the legacy Stormglass prologue with p1/p2 decisions")
+        assertTrue(guard < 120, "Four-player host must finish Stormglass with every participant decision")
     }
 
     private fun moveP1ToDock(host: GameSessionCoordinator): Boolean {
