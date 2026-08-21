@@ -1,9 +1,21 @@
 package grandlineduo.appshell
 
+import grandlineduo.core.model.PlayerState
+import grandlineduo.core.model.WorldState
+import grandlineduo.core.persistence.DurableCampaignStore
 import grandlineduo.game.character.Attribute
+import grandlineduo.game.character.CharacterCreation
+import grandlineduo.game.character.CharacterCreationResult
 import grandlineduo.game.character.CharacterDraft
 import grandlineduo.game.character.Skill
+import grandlineduo.game.combat.CombatActionType
+import grandlineduo.game.quest.QuestBoardState
+import grandlineduo.game.quest.QuestDefinition
+import grandlineduo.game.quest.QuestProgress
+import grandlineduo.game.quest.QuestRarity
+import grandlineduo.game.quest.QuestReward
 import grandlineduo.game.quest.QuestStatus
+import grandlineduo.game.quest.QuestType
 import grandlineduo.game.scenario.ScenarioStage
 import grandlineduo.game.StormglassPersistenceAdapter
 import grandlineduo.test.assertEquals
@@ -71,6 +83,66 @@ object GameSessionCoordinatorTest {
                 session.submitQuestAction("TURN_IN", offered.questId)
                 assertTrue(offered.questId in session.worldState().questBoard.completedQuestIds)
                 assertEquals(berriesBefore + offered.reward.berries, session.worldState().partyBerries)
+            }
+        }
+
+        test("solo quest boss enters combat and existing companion planner resolves p2 action") {
+            val root = Files.createTempDirectory("gld-session-quest-boss")
+            val campaignId = "session-quest-boss"
+            val boss = QuestDefinition(
+                questId = "solo-boss-1",
+                islandId = "stormglass-cay",
+                title = "Executor do cais",
+                type = QuestType.BOSS,
+                rarity = QuestRarity.COMMON,
+                issuerFaction = "LOCALS",
+                targetId = "dock-enforcer",
+                requiredAmount = 1,
+                reward = QuestReward(berries = 2_000),
+            )
+            val p1Profile = (CharacterCreation.create(validDraft("Arlen")) as CharacterCreationResult.Success).profile
+            val p2Profile = (CharacterCreation.create(validDraft("Mako")) as CharacterCreationResult.Success).profile
+            val initial = WorldState(
+                campaignId = campaignId,
+                islandId = "stormglass-cay",
+                players = mapOf(
+                    "p1" to PlayerState(
+                        "p1", p1Profile.name, p1Profile.maxHp, p1Profile.maxHp, 0,
+                        p1Profile.maxEnergy, p1Profile.maxEnergy, p1Profile,
+                    ),
+                    "p2" to PlayerState(
+                        "p2", p2Profile.name, p2Profile.maxHp, p2Profile.maxHp, 0,
+                        p2Profile.maxEnergy, p2Profile.maxEnergy, p2Profile,
+                    ),
+                ),
+                questBoard = QuestBoardState(
+                    active = mapOf(
+                        boss.questId to QuestProgress(
+                            definition = boss,
+                            status = QuestStatus.ACTIVE,
+                            progress = 0,
+                            acceptedBy = "p1",
+                        )
+                    )
+                ),
+                worldFlags = mapOf(
+                    "campaign.mode" to "SOLO",
+                    "campaign.chapter" to "0",
+                ),
+            )
+            DurableCampaignStore(root.resolve(campaignId)).initialize(initial)
+
+            GameSessionCoordinator(root).use { session ->
+                session.resume(campaignId)
+                session.submitQuestAction("START_BOSS", boss.questId)
+
+                assertEquals(GameScreen.COMBAT, GamePresenter.present(session.worldState(), "p1").screen)
+                val before = session.worldState().activeCombat!!
+
+                session.submitCombatAction(CombatActionType.SETUP)
+
+                val after = session.worldState().activeCombat
+                assertTrue(after == null || after.round > before.round || "p2" in after.lockedActions)
             }
         }
 
