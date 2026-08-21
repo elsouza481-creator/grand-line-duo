@@ -195,10 +195,15 @@ object GamePresenter {
         val map = ExplorationEngine.mapFor(world.campaignId, world.islandId)
         val playerPosition = ExplorationEngine.position(world, actorId)
         val interaction = ExplorationEngine.interactionAt(world, actorId)
-        val partnerId = if (actorId == "p1") "p2" else "p1"
-        val partner = world.players[partnerId]
-        val partnerInteraction = ExplorationEngine.interactionAt(world, partnerId)
         val duel = TrainingDuelEngine.state(world)
+        val duelRivalId = duel?.let { current ->
+            when (actorId) {
+                current.challengerId -> current.opponentId
+                current.opponentId -> current.challengerId
+                else -> null
+            }
+        }
+        val duelRival = duelRivalId?.let(world.players::get)
         val npc = map.npcs[playerPosition]
         val objective = map.questObjectives[playerPosition]
         val pickup = map.pickups[playerPosition]?.takeUnless { ExplorationLootEngine.isCollected(world, it.id) }
@@ -250,14 +255,24 @@ object GamePresenter {
             }
         }
         val duelContext = when (duel?.status) {
-            TrainingDuelStatus.CHALLENGED -> if (actorId == duel.challengerId) {
-                "DUELO DE TREINO • desafio enviado a ${partner?.name ?: partnerId}. Aguardando resposta na arena."
-            } else {
-                "DUELO DE TREINO • ${partner?.name ?: partnerId} desafiou você. Aceite ou recuse o combate não letal."
+            TrainingDuelStatus.CHALLENGED -> when (actorId) {
+                duel.challengerId ->
+                    "DUELO DE TREINO • desafio enviado a ${duelRival?.name ?: duel.opponentId.uppercase()}. Aguardando resposta na arena."
+                duel.opponentId ->
+                    "DUELO DE TREINO • ${duelRival?.name ?: duel.challengerId.uppercase()} desafiou você. Aceite ou recuse o combate não letal."
+                else -> {
+                    val challengerName = world.players[duel.challengerId]?.name ?: duel.challengerId.uppercase()
+                    val opponentName = world.players[duel.opponentId]?.name ?: duel.opponentId.uppercase()
+                    "DUELO DE TREINO • ${duel.challengerId.uppercase()} $challengerName desafiou ${duel.opponentId.uppercase()} $opponentName. Você está assistindo."
+                }
             }
-            TrainingDuelStatus.ACTIVE -> {
+            TrainingDuelStatus.ACTIVE -> if (duelRivalId == null) {
+                val challengerName = world.players[duel.challengerId]?.name ?: duel.challengerId.uppercase()
+                val opponentName = world.players[duel.opponentId]?.name ?: duel.opponentId.uppercase()
+                "DUELO EM ANDAMENTO • ${duel.challengerId.uppercase()} $challengerName vs ${duel.opponentId.uppercase()} $opponentName • rodada ${duel.round}. Você está assistindo."
+            } else {
                 val ownHp = duel.duelHp[actorId] ?: 0
-                val rivalHp = duel.duelHp[partnerId] ?: 0
+                val rivalHp = duel.duelHp[duelRivalId] ?: 0
                 val waiting = if (actorId in duel.lockedActions) {
                     " Sua ação está travada. Aguardando o rival."
                 } else {
@@ -277,7 +292,7 @@ object GamePresenter {
                     } else if (actorId == duel.challengerId) {
                         add(GameAction("", "Cancelar desafio", "DUEL_CANCEL"))
                     }
-                    TrainingDuelStatus.ACTIVE -> {
+                    TrainingDuelStatus.ACTIVE -> if (actorId == duel.challengerId || actorId == duel.opponentId) {
                         if (actorId !in duel.lockedActions) {
                             TrainingDuelAction.entries.forEach { action ->
                                 add(GameAction(action.name, duelActionLabel(action), "DUEL_ACTION"))
@@ -315,9 +330,21 @@ object GamePresenter {
                     ExplorationInteraction.MARKET -> add(GameAction("SHOP", "Entrar no mercado", "MENU"))
                     ExplorationInteraction.TRAINING -> {
                         add(GameAction("TRAINING", "Treinar nesta área", "MENU"))
-                        if (partnerInteraction == ExplorationInteraction.TRAINING) {
-                            add(GameAction("", "Desafiar ${partner?.name ?: partnerId} para duelo", "DUEL_CHALLENGE"))
-                        }
+                        world.players.values
+                            .asSequence()
+                            .filter { it.playerId != actorId }
+                            .filter { it.profile != null }
+                            .filter { ExplorationEngine.interactionAt(world, it.playerId) == ExplorationInteraction.TRAINING }
+                            .sortedBy { it.playerId }
+                            .forEach { rival ->
+                                add(
+                                    GameAction(
+                                        rival.playerId,
+                                        "Desafiar ${rival.name} (${rival.playerId.uppercase()}) para duelo",
+                                        "DUEL_CHALLENGE",
+                                    )
+                                )
+                            }
                     }
                     ExplorationInteraction.SHIP -> add(GameAction("SHIP", "Gerenciar o navio", "MENU"))
                     ExplorationInteraction.CREW -> add(GameAction("CREW", "Falar com a tripulação", "MENU"))
