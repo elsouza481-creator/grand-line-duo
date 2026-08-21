@@ -41,6 +41,24 @@ object CombatEngineTest {
             assertTrue(result.log.any { "CO-OP" in it })
         }
 
+        test("any two four player party members can trigger the cooperative combo") {
+            val engine = CombatEngine(seed = 56)
+            var state = sampleState(enemyHp = 200).copy(
+                players = sampleState().players + mapOf(
+                    "p3" to Combatant("p3", "Rika", 58, 58),
+                    "p4" to Combatant("p4", "Bram", 62, 62),
+                ),
+            )
+            state = engine.lockAction(state, CombatAction("p1", CombatActionType.DEFEND))
+            state = engine.lockAction(state, CombatAction("p2", CombatActionType.ATTACK))
+            state = engine.lockAction(state, CombatAction("p3", CombatActionType.SETUP))
+            state = engine.lockAction(state, CombatAction("p4", CombatActionType.FINISHER))
+            val result = engine.resolveIfReady(state)!!
+
+            assertEquals(true, result.coopCombo)
+            assertTrue(result.log.any { "CO-OP" in it })
+        }
+
         test("defending reduces damage from enemy telegraph") {
             val attackingEngine = CombatEngine(seed = 77)
             var attackState = sampleState(telegraphTarget = "p1")
