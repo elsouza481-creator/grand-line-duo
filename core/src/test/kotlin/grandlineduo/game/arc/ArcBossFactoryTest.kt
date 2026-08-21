@@ -39,6 +39,21 @@ object ArcBossFactoryTest {
             assertTrue(combat.telegraph.targetPlayerId in setOf("p1", "p2"))
         }
 
+        test("arc boss includes every created human player in a four player co-op party") {
+            val fourPlayerWorld = world().copy(
+                players = world().players + mapOf(
+                    "p3" to PlayerState("p3", "Rika", 21, 32, 4_000_000),
+                    "p4" to PlayerState("p4", "Bram", 19, 35, 3_000_000),
+                ),
+            )
+            val combat = ArcBossFactory.create(fourPlayerWorld, arc(ArcArchetype.RUINS_MYSTERY, 4))
+
+            assertEquals(setOf("p1", "p2", "p3", "p4"), combat.players.keys)
+            assertEquals(21, combat.players.getValue("p3").hp)
+            assertEquals(19, combat.players.getValue("p4").hp)
+            assertTrue(combat.telegraph.targetPlayerId in combat.players.keys)
+        }
+
         test("different arc seed can change initial telegraph without changing boss rules") {
             val a = ArcBossFactory.create(world(), arc(ArcArchetype.MARINE_OCCUPATION, 2, seed = 11L))
             val b = ArcBossFactory.create(world(), arc(ArcArchetype.MARINE_OCCUPATION, 2, seed = 12L))
