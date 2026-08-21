@@ -84,6 +84,23 @@ object QuestEngineTest {
             assertTrue(quest.questId in world.questBoard.failedQuestIds)
             assertTrue(runCatching { QuestEngine.accept(world, quest.questId, "p2") }.isFailure)
         }
+
+        test("boss quest rejects manual progress") {
+            val quest = sampleQuest().copy(
+                questId = "shells-town-boss-001",
+                title = "Derrubar o executor",
+                type = QuestType.BOSS,
+                targetId = "island-enforcer",
+                requiredAmount = 1,
+            )
+            val accepted = QuestEngine.accept(worldWithOffer(quest), quest.questId, "p1")
+
+            val result = runCatching { QuestEngine.progress(accepted, quest.questId, 1) }
+
+            assertTrue(result.isFailure)
+            assertEquals(0, accepted.questBoard.active.getValue(quest.questId).progress)
+            assertEquals(QuestStatus.ACTIVE, accepted.questBoard.active.getValue(quest.questId).status)
+        }
     }
 
     private fun sampleQuest(
