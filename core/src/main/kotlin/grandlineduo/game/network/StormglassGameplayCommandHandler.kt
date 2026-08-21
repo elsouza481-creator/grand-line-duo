@@ -269,6 +269,11 @@ class StormglassGameplayCommandHandler(
             } else {
                 TrainingDuelEngine.challenge(before, command.actorId, command.target)
             }
+            "DUEL_FIELD_CHALLENGE" -> TrainingDuelEngine.challengeAdjacent(
+                before,
+                command.actorId,
+                command.target,
+            )
             "DUEL_ACCEPT" -> TrainingDuelEngine.accept(before, command.actorId)
             "DUEL_DECLINE" -> TrainingDuelEngine.decline(before, command.actorId)
             "DUEL_CANCEL" -> TrainingDuelEngine.cancel(before, command.actorId)
