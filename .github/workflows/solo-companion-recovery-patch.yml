@@ -1,0 +1,113 @@
+name: Apply solo companion recovery fix
+
+on:
+  push:
+    branches: ["feature/quest-contract-system"]
+    paths:
+      - ".github/workflows/solo-companion-recovery-patch.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/quest-contract-system
+          fetch-depth: 0
+      - name: Patch solo recovery before sailing
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('core/src/main/kotlin/grandlineduo/appshell/GameSessionCoordinator.kt')
+          text = path.read_text()
+
+          needle = '''        val scenarioComplete = StormglassPersistenceAdapter.decode(world).scenario.stage == grandlineduo.game.scenario.ScenarioStage.COMPLETE
+        val arcComplete = world.activeArc?.phase == ArcPhase.COMPLETE
+        require(scenarioComplete || arcComplete) { "Current chapter is not complete" }
+
+        val chapter = world.worldFlags["campaign.chapter"]?.toIntOrNull() ?: 0
+'''
+          replacement = '''        val scenarioComplete = StormglassPersistenceAdapter.decode(world).scenario.stage == grandlineduo.game.scenario.ScenarioStage.COMPLETE
+        val arcComplete = world.activeArc?.phase == ArcPhase.COMPLETE
+        require(scenarioComplete || arcComplete) { "Current chapter is not complete" }
+        if (mode == SessionMode.SOLO) autoRecoverSoloCompanion()
+        val preparedWorld = worldState()
+
+        val chapter = preparedWorld.worldFlags["campaign.chapter"]?.toIntOrNull() ?: 0
+'''
+          if text.count(needle) != 1:
+              raise SystemExit('advanceCampaign recovery anchor mismatch')
+          text = text.replace(needle, replacement, 1)
+
+          text = text.replace('''            completeCampaign()
+            return worldState()
+        }
+        val target = CAMPAIGN_ISLANDS[chapter]
+''', '''            completeCampaign()
+            return worldState()
+        }
+        val target = CAMPAIGN_ISLANDS[chapter]
+''', 1)
+
+          text = text.replace('''        val flags = world.worldFlags + mapOf(
+            "campaign.pendingIsland" to target,
+            "campaign.traveling" to "true",
+        )
+        replaceHostWorld(
+            next = world.copy(activeVoyage = encounter, worldFlags = flags),
+''', '''        val flags = preparedWorld.worldFlags + mapOf(
+            "campaign.pendingIsland" to target,
+            "campaign.traveling" to "true",
+        )
+        replaceHostWorld(
+            next = preparedWorld.copy(activeVoyage = encounter, worldFlags = flags),
+''', 1)
+
+          method_anchor = '''    private fun ensureSoloCompanion() {
+'''
+          recovery_method = '''    private fun autoRecoverSoloCompanion() {
+        val host = hostReplica ?: return
+        repeat(8) {
+            val world = host.state
+            val player = world.players["p2"] ?: return
+            if (player.hp >= player.maxHp) return
+            val inventory = grandlineduo.game.InventoryEngine.read(world, "p2")
+            val itemId = when {
+                (inventory.items["bandage"] ?: 0) > 0 -> "bandage"
+                (inventory.items["ration"] ?: 0) > 0 -> "ration"
+                else -> return
+            }
+            handler!!.handle(
+                GameplayWireCommand.InventoryAction(
+                    commandId = nextCommandId("ai-recovery"),
+                    actorId = "p2",
+                    actionType = "USE",
+                    target = itemId,
+                    amount = 1,
+                ),
+                System.currentTimeMillis(),
+            )
+        }
+    }
+
+'''
+          if text.count(method_anchor) != 1:
+              raise SystemExit('solo recovery method anchor mismatch')
+          text = text.replace(method_anchor, recovery_method + method_anchor, 1)
+          path.write_text(text)
+          PY
+      - name: Commit fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add core/src/main/kotlin/grandlineduo/appshell/GameSessionCoordinator.kt
+          git diff --cached --check
+          git commit -m "fix: recover solo companion before sailing"
+          git push origin HEAD:feature/quest-contract-system
