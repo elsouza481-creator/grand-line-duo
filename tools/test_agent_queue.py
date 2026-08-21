@@ -1,8 +1,4 @@
-import json
-import subprocess
-import sys
 import unittest
-from pathlib import Path
 
 from tools.agent_queue import select_issue, slugify, validate_issue
 
@@ -53,6 +49,20 @@ class AgentQueuePolicyTests(unittest.TestCase):
                 "## Desired outcome\nAdd a safe queue.\n\n"
                 "## Acceptance criteria\n- Lowest issue wins.\n\n"
                 "## Constraints\n- Never write directly to main.\n"
+            ),
+            "labels": [{"name": "agent:ready"}],
+        }
+
+        self.assertEqual([], validate_issue(issue))
+
+    def test_validate_issue_accepts_github_issue_form_headings(self):
+        issue = {
+            "number": 10,
+            "title": "Issue form task",
+            "body": (
+                "### Desired outcome\nAdd a queue.\n\n"
+                "### Acceptance criteria\n- It is deterministic.\n\n"
+                "### Constraints\n- Fail closed.\n"
             ),
             "labels": [{"name": "agent:ready"}],
         }
