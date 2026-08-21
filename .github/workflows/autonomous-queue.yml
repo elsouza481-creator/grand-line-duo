@@ -1,0 +1,168 @@
+name: GRAND LINE DUO Autonomous Queue
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 * * * *"
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: grand-line-duo-autonomous-queue
+  cancel-in-progress: false
+
+jobs:
+  queue:
+    if: ${{ vars.AUTONOMOUS_DEVELOPMENT_PAUSED != 'true' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Ensure lifecycle labels exist
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh label create "agent:ready" --color "1f883d" --description "Eligible for autonomous work" --force
+          gh label create "agent:working" --color "0969da" --description "Claimed by autonomous development" --force
+          gh label create "agent:blocked" --color "d1242f" --description "Autonomous work stopped safely" --force
+          gh label create "agent:done" --color "8250df" --description "Autonomous task completed and integrated" --force
+          gh label create "agent:stop" --color "fbca04" --description "Manual stop marker for autonomous work" --force
+
+      - name: Select next ready issue
+        id: select
+        shell: bash
+        run: |
+          set -euo pipefail
+          issues_json="$(gh issue list --state open --label "agent:ready" --limit 100 --json number,title,body,labels)"
+          selected_json="$(printf '%s' "$issues_json" | python3 tools/agent_queue.py select)"
+
+          if [ -z "$selected_json" ]; then
+            echo "has_issue=false" >> "$GITHUB_OUTPUT"
+            echo "No eligible autonomous issue."
+            exit 0
+          fi
+
+          issue_number="$(printf '%s' "$selected_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["number"])')"
+          issue_title="$(printf '%s' "$selected_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["title"])')"
+          echo "has_issue=true" >> "$GITHUB_OUTPUT"
+          echo "issue_number=$issue_number" >> "$GITHUB_OUTPUT"
+          echo "Selected issue #$issue_number: $issue_title"
+
+      - name: Recheck and validate selected issue
+        id: validate
+        if: steps.select.outputs.has_issue == 'true'
+        shell: bash
+        env:
+          ISSUE_NUMBER: ${{ steps.select.outputs.issue_number }}
+        run: |
+          set -euo pipefail
+          issue_json="$(gh issue view "$ISSUE_NUMBER" --json number,title,body,state,labels)"
+
+          read -r state ready stopped < <(
+            printf '%s' "$issue_json" | python3 -c '
+          import json, sys
+          issue = json.load(sys.stdin)
+          labels = {item["name"] for item in issue.get("labels", [])}
+          print(issue.get("state", ""), str("agent:ready" in labels).lower(), str("agent:stop" in labels).lower())
+          '
+          )
+
+          if [ "$state" != "OPEN" ] || [ "$ready" != "true" ]; then
+            echo "valid=false" >> "$GITHUB_OUTPUT"
+            echo "Selected issue is no longer eligible; exiting without mutation."
+            exit 0
+          fi
+
+          if [ "$stopped" = "true" ]; then
+            gh issue edit "$ISSUE_NUMBER" --remove-label "agent:ready"
+            gh issue comment "$ISSUE_NUMBER" --body "Autonomous queue skipped this task because \`agent:stop\` is present. Remove the stop label and add \`agent:ready\` to resume."
+            echo "valid=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          validation_file="$(mktemp)"
+          if ! printf '%s' "$issue_json" | python3 tools/agent_queue.py validate >"$validation_file" 2>&1; then
+            gh issue edit "$ISSUE_NUMBER" --remove-label "agent:ready" --add-label "agent:blocked"
+            {
+              echo "Autonomous queue blocked this task because its execution contract is incomplete:"
+              echo
+              sed 's/^/- /' "$validation_file"
+              echo
+              echo "Complete the required sections, remove \`agent:blocked\`, and add \`agent:ready\` to retry."
+            } | gh issue comment "$ISSUE_NUMBER" --body-file -
+            echo "valid=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "valid=true" >> "$GITHUB_OUTPUT"
+
+      - name: Claim selected issue
+        id: claim
+        if: steps.select.outputs.has_issue == 'true' && steps.validate.outputs.valid == 'true'
+        shell: bash
+        env:
+          ISSUE_NUMBER: ${{ steps.select.outputs.issue_number }}
+        run: |
+          set -euo pipefail
+          gh issue edit "$ISSUE_NUMBER" --remove-label "agent:ready" --add-label "agent:working"
+          gh issue comment "$ISSUE_NUMBER" --body "Autonomous queue claimed this task. Delegation will now be attempted; no direct write to \`main\` is permitted."
+          echo "claimed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Delegate claimed issue to Copilot cloud agent
+        if: steps.claim.outputs.claimed == 'true'
+        shell: bash
+        env:
+          ISSUE_NUMBER: ${{ steps.select.outputs.issue_number }}
+          COPILOT_AGENT_TOKEN: ${{ secrets.COPILOT_AGENT_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          block_issue() {
+            local message="$1"
+            gh issue edit "$ISSUE_NUMBER" --remove-label "agent:working" --add-label "agent:blocked"
+            gh issue comment "$ISSUE_NUMBER" --body "$message"
+          }
+
+          if [ -z "${COPILOT_AGENT_TOKEN:-}" ]; then
+            block_issue "Autonomous delegation is blocked: repository secret \`COPILOT_AGENT_TOKEN\` is not configured. Configure a GitHub user token accepted for Copilot cloud-agent issue assignment, then remove \`agent:blocked\` and add \`agent:ready\` to retry."
+            exit 0
+          fi
+
+          payload="$(python3 - <<'PY'
+          import json, os
+          print(json.dumps({
+              "assignees": ["copilot-swe-agent[bot]"],
+              "agent_assignment": {
+                  "target_repo": os.environ["GITHUB_REPOSITORY"],
+                  "base_branch": "main",
+                  "custom_instructions": (
+                      "Follow .github/copilot-instructions.md and the issue acceptance criteria. "
+                      "Make the smallest coherent change, run required tests, do not write directly to main, "
+                      "and open a pull request with verification evidence."
+                  ),
+                  "custom_agent": "",
+                  "model": ""
+              }
+          }))
+          PY
+          )"
+
+          error_file="$(mktemp)"
+          if ! GH_TOKEN="$COPILOT_AGENT_TOKEN" gh api \
+            --method POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "/repos/${GITHUB_REPOSITORY}/issues/${ISSUE_NUMBER}/assignees" \
+            --input - <<<"$payload" >/dev/null 2>"$error_file"; then
+            diagnostic="$(tr '\n' ' ' < "$error_file" | cut -c1-800)"
+            block_issue "Autonomous delegation failed safely. GitHub rejected the Copilot cloud-agent assignment. Diagnostic: \`${diagnostic:-unknown API error}\`. Resolve the account/token prerequisite, then requeue the issue."
+            exit 0
+          fi
+
+          gh issue comment "$ISSUE_NUMBER" --body "Delegated successfully to GitHub Copilot cloud agent. This rollout does not auto-merge; the resulting pull request must pass repository verification before integration."

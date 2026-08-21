@@ -1,0 +1,61 @@
+name: Autonomous development task
+description: Queue a well-scoped GRAND LINE DUO development task for autonomous work.
+title: "[Agent] "
+labels:
+  - "agent:ready"
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form only for a task that is safe to implement autonomously.
+        The queue processes the lowest-number open `agent:ready` issue first.
+
+  - type: textarea
+    id: desired-outcome
+    attributes:
+      label: Desired outcome
+      description: Describe the observable result that should exist when this task is complete.
+      placeholder: "Example: Reconnect a LAN guest to the existing host session without losing player state."
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance-criteria
+    attributes:
+      label: Acceptance criteria
+      description: List concrete checks the implementation must satisfy.
+      placeholder: |
+        - Guest can reconnect after a temporary Wi-Fi interruption.
+        - Host remains authoritative.
+        - Existing core tests remain green.
+    validations:
+      required: true
+
+  - type: textarea
+    id: constraints
+    attributes:
+      label: Constraints
+      description: State boundaries, compatibility requirements, and anything the agent must not change.
+      placeholder: |
+        - Android/mobile target.
+        - Exactly two human players.
+        - Do not weaken existing tests or networking safety checks.
+    validations:
+      required: true
+
+  - type: textarea
+    id: likely-files
+    attributes:
+      label: Likely files or systems
+      description: Optional pointers to relevant files, packages, or systems.
+      placeholder: "core/src/..., app/src/..., networking/persistence"
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: readiness
+    attributes:
+      label: Ready for autonomous work
+      options:
+        - label: The task is scoped, testable, and does not require destructive actions or unavailable secrets.
+          required: true

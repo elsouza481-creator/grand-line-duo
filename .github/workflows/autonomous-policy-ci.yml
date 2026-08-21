@@ -1,0 +1,57 @@
+name: GRAND LINE DUO Autonomous Policy CI
+
+on:
+  pull_request:
+    branches: ["main"]
+    paths:
+      - "tools/agent_queue.py"
+      - "tools/test_agent_queue.py"
+      - ".github/workflows/autonomous-*.yml"
+      - ".github/ISSUE_TEMPLATE/**"
+      - ".github/agents/**"
+      - ".github/copilot-instructions.md"
+      - "docs/AUTONOMOUS_DEVELOPMENT.md"
+  push:
+    branches: ["main"]
+    paths:
+      - "tools/agent_queue.py"
+      - "tools/test_agent_queue.py"
+      - ".github/workflows/autonomous-*.yml"
+      - ".github/ISSUE_TEMPLATE/**"
+      - ".github/agents/**"
+      - ".github/copilot-instructions.md"
+      - "docs/AUTONOMOUS_DEVELOPMENT.md"
+
+permissions:
+  contents: read
+
+jobs:
+  policy-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run autonomous queue policy tests
+        run: python3 -m unittest tools/test_agent_queue.py -v
+
+      - name: Check autonomous workflow structure
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          paths = sorted(Path('.github/workflows').glob('autonomous-*.yml'))
+          assert paths, 'expected at least one autonomous workflow'
+          for path in paths:
+              text = path.read_text(encoding='utf-8')
+              for marker in ('name:', 'on:', 'jobs:'):
+                  assert marker in text, f'{path}: missing {marker}'
+          print(f'workflow structure ok ({len(paths)} files)')
+          PY
