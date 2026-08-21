@@ -40,6 +40,35 @@ object TrainingDuelEngineTest {
             assertEquals(24, world.players.getValue("p2").hp)
         }
 
+        test("p3 can select p4 as a physical training duel opponent") {
+            var world = fourPlayerWorld("duel-four")
+            val training = trainingPosition(world)
+            listOf("p1", "p2", "p3", "p4").forEach { playerId ->
+                world = ExplorationEngine.place(world, playerId, training)
+            }
+
+            world = TrainingDuelEngine.challenge(world, "p3", "p4")
+            val pending = requireNotNull(TrainingDuelEngine.state(world))
+            assertEquals("p3", pending.challengerId)
+            assertEquals("p4", pending.opponentId)
+
+            world = TrainingDuelEngine.accept(world, "p4")
+            val active = requireNotNull(TrainingDuelEngine.state(world))
+            assertEquals(setOf("p3", "p4"), active.duelHp.keys)
+            assertEquals(28, active.duelHp.getValue("p3"))
+            assertEquals(22, active.duelHp.getValue("p4"))
+
+            world = TrainingDuelEngine.submitAction(world, "p3", TrainingDuelAction.ATTACK)
+            world = TrainingDuelEngine.submitAction(world, "p4", TrainingDuelAction.DEFEND)
+            val resolved = requireNotNull(TrainingDuelEngine.state(world))
+            assertEquals(2, resolved.round)
+            assertEquals(setOf("p3", "p4"), resolved.duelHp.keys)
+            assertEquals(28, world.players.getValue("p3").hp)
+            assertEquals(22, world.players.getValue("p4").hp)
+            assertEquals(30, world.players.getValue("p1").hp)
+            assertEquals(24, world.players.getValue("p2").hp)
+        }
+
         test("training duel resolves locked actions simultaneously without touching persistent hp") {
             var world = activeDuel("duel-round")
             world = TrainingDuelEngine.submitAction(world, "p1", TrainingDuelAction.ATTACK)
@@ -97,6 +126,17 @@ object TrainingDuelEngineTest {
         players = mapOf(
             "p1" to PlayerState("p1", "Kairo", p1Hp, p1Hp, 0),
             "p2" to PlayerState("p2", "Namiya", p2Hp, p2Hp, 0),
+        ),
+    )
+
+    private fun fourPlayerWorld(id: String) = WorldState(
+        campaignId = id,
+        islandId = "stormglass-cay",
+        players = mapOf(
+            "p1" to PlayerState("p1", "Kairo", 30, 30, 0),
+            "p2" to PlayerState("p2", "Namiya", 24, 24, 0),
+            "p3" to PlayerState("p3", "Cato", 28, 28, 0),
+            "p4" to PlayerState("p4", "Dara", 22, 22, 0),
         ),
     )
 }
