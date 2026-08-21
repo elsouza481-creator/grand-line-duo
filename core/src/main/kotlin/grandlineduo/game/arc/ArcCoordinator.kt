@@ -46,7 +46,6 @@ class ArcCoordinator(
 
     @Synchronized
     fun choose(commandId: String, playerId: String, choiceId: String, hostTimestamp: Long): CampaignEvent {
-        require(playerId == "p1" || playerId == "p2") { "Unknown player $playerId" }
         val fingerprint = "arc-choice|$playerId|$choiceId"
         hostReplica.events.firstOrNull { it.commandId == commandId }?.let { existing ->
             require(existing.commandFingerprint == fingerprint) { "Command ID collision" }
@@ -55,6 +54,7 @@ class ArcCoordinator(
         }
         require(hostReplica.state.activeCombat == null) { "Arc choice is blocked while combat is active" }
         val current = hostReplica.state.activeArc ?: throw IllegalArgumentException("No active arc")
+        require(playerId in current.participantIds) { "Unknown player $playerId" }
         val baseOutcome = ArcEngine.choose(current, playerId, choiceId)
         val scholarTier = ClassMasteryArcResolver.scholarTierForChoice(
             hostReplica.state.players[playerId]?.profile,
@@ -66,7 +66,7 @@ class ArcCoordinator(
                 state = ClassMasteryArcResolver.applyScholarAnalysis(baseOutcome.state, scholarTier),
                 beats = baseOutcome.beats + ArcBeat(
                     text = "O conhecimento especializado transforma as pistas em uma análise tática compartilhada.",
-                    visibleTo = setOf("p1", "p2"),
+                    visibleTo = baseOutcome.state.participantIds,
                 ),
             )
         } else baseOutcome
@@ -125,6 +125,7 @@ class ArcCoordinator(
     private fun startFingerprint(context: ArcStartContext): String = buildString {
         append("arc-start|").append(context.seed).append('|').append(context.islandId).append('|')
         append(context.totalBounty).append('|')
+        context.participantIds.sorted().forEach { append("p=").append(it).append(';') }
         context.presentFactions.sorted().forEach { append("f=").append(it).append(';') }
         context.worldFlags.sorted().forEach { append("w=").append(it).append(';') }
     }
