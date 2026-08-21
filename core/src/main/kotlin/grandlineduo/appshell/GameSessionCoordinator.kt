@@ -367,6 +367,7 @@ class GameSessionCoordinator(private val saveRoot: Path? = null) : Closeable {
             val p1Action = activeArcCombat.lockedActions["p1"]?.type
             val chosen = when {
                 activeArcCombat.telegraph.targetPlayerId == "p2" && activeArcCombat.telegraph.type == grandlineduo.game.combat.EnemyAttackType.HEAVY_STRIKE -> CombatActionType.DODGE
+                activeArcCombat.telegraph.targetPlayerId == "p2" && activeArcCombat.telegraph.type == grandlineduo.game.combat.EnemyAttackType.SWEEP -> CombatActionType.DEFEND
                 p1Action == CombatActionType.SETUP -> CombatActionType.FINISHER
                 else -> CombatActionType.ATTACK
             }
