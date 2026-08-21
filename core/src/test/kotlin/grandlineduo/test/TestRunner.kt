@@ -41,6 +41,7 @@ fun main() {
     grandlineduo.appshell.CharacterPresetFactoryTest.register()
     grandlineduo.appshell.GameSessionCoordinatorTest.register()
     grandlineduo.appshell.SessionHudStateTest.register()
+    grandlineduo.appshell.GameActionRouterTest.register()
     grandlineduo.appshell.GamePresenterTest.register()
     grandlineduo.appshell.FourPlayerPresentationTest.register()
     grandlineduo.appshell.ExplorationFieldBossPresentationTest.register()
