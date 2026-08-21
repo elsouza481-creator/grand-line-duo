@@ -56,7 +56,20 @@ object CampaignLoopTest {
                     val view = GamePresenter.present(world, "p1")
                     when (view.screen) {
                         GameScreen.STORY -> session.submitScenarioChoice(view.actions.first().id)
-                        GameScreen.ARC -> session.submitArcChoice(view.actions.first().id)
+                        GameScreen.ARC -> {
+                            val choice = view.actions.first().id
+                            try {
+                                session.submitArcChoice(choice)
+                            } catch (t: Throwable) {
+                                val after = session.worldState()
+                                error(
+                                    "Arc transition failed at step=$steps choice=$choice " +
+                                        "beforePhase=${world.activeArc?.phase} beforeActed=${world.activeArc?.actedThisPhase} " +
+                                        "beforeCombat=${world.activeCombat?.status} afterPhase=${after.activeArc?.phase} " +
+                                        "afterActed=${after.activeArc?.actedThisPhase} afterCombat=${after.activeCombat?.status}: ${t.message}"
+                                )
+                            }
+                        }
                         GameScreen.COMBAT -> {
                             val combat = world.activeCombat ?: StormglassPersistenceAdapter.decode(world).combat!!
                             val action = if (combat.telegraph.targetPlayerId == "p1" && combat.telegraph.type == EnemyAttackType.HEAVY_STRIKE) {
