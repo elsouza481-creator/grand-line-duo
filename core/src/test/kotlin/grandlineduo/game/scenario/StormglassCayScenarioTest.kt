@@ -56,5 +56,31 @@ object StormglassCayScenarioTest {
             val revealed = scenario.choose(state, "p2", "reveal_manifest")
             assertTrue("manifest_revealed" in revealed.state.sharedFlags)
         }
+
+        test("four player Stormglass opening waits for every participant and shares public beats with all four") {
+            val scenario = StormglassCayScenario()
+            val participants = setOf("p1", "p2", "p3", "p4")
+            var state = scenario.initialState(participants)
+
+            assertEquals(participants, state.participantIds)
+            assertTrue(scenario.view(state, "p3").choices.isNotEmpty())
+            assertTrue(scenario.view(state, "p4").choices.isNotEmpty())
+
+            val first = scenario.choose(state, "p1", "help_dockworker")
+            participants.forEach { playerId ->
+                assertTrue(first.beatsFor(playerId).isNotEmpty())
+            }
+            state = first.state
+            state = scenario.choose(state, "p2", "shadow_courier").state
+            state = scenario.choose(state, "p3", "visit_tavern").state
+            assertEquals(ScenarioStage.ARRIVAL, state.stage)
+            assertEquals(setOf("p1", "p2", "p3"), state.actedThisStage)
+
+            state = scenario.choose(state, "p4", "inspect_market").state
+            assertEquals(ScenarioStage.INVESTIGATION, state.stage)
+            assertEquals(emptySet<String>(), state.actedThisStage)
+            assertTrue("marine_manifest" in state.privateKnowledge["p2"].orEmpty())
+            assertTrue("marine_manifest" !in state.privateKnowledge["p3"].orEmpty())
+        }
     }
 }

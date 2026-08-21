@@ -78,5 +78,72 @@ object ArcBossLanIntegrationTest {
                 }
             }
         }
+
+        test("P2 P3 and P4 submit one four player arc boss round over real TCP and converge") {
+            val initial = WorldState(
+                campaignId = "arc-boss-lan-four",
+                islandId = "ironwake-atoll",
+                players = mapOf(
+                    "p1" to PlayerState("p1", "Kairo", 100, 100, 9_000_000L),
+                    "p2" to PlayerState("p2", "Namiya", 100, 100, 8_000_000L),
+                    "p3" to PlayerState("p3", "Rika", 100, 100, 7_000_000L),
+                    "p4" to PlayerState("p4", "Bram", 100, 100, 6_000_000L),
+                ),
+                activeArc = ArcState(
+                    arcId = "ironwake:marine:boss-lan-four",
+                    islandId = "ironwake-atoll",
+                    seed = 424242L,
+                    archetype = ArcArchetype.MARINE_OCCUPATION,
+                    phase = ArcPhase.CLIMAX,
+                    escalation = 1,
+                ),
+            )
+            val host = HostReplica(initial)
+            val arc = ArcCoordinator(host)
+            val combat = ArcCombatCoordinator(host)
+            val p2Replica = ClientReplica(initial)
+            val p3Replica = ClientReplica(initial)
+            val p4Replica = ClientReplica(initial)
+            val handler = StormglassGameplayCommandHandler(host, seed = 101L)
+
+            LanHostServer(host, port = 0, gameplayCommandHandler = handler).use { server ->
+                server.start()
+                LanClientConnection("127.0.0.1", server.boundPort, "p2", p2Replica).use { p2 ->
+                    LanClientConnection("127.0.0.1", server.boundPort, "p3", p3Replica).use { p3 ->
+                        LanClientConnection("127.0.0.1", server.boundPort, "p4", p4Replica).use { p4 ->
+                            p2.connect()
+                            p3.connect()
+                            p4.connect()
+
+                            arc.choose("four-climax-p1", "p1", "draw_boss", 30_000)
+                            p2.sendGameplay(GameplayWireCommand.ArcChoice("four-climax-p2", "p2", "exploit_weakness"))
+                            p3.refresh()
+                            p4.refresh()
+                            assertEquals(setOf("p1", "p2", "p3", "p4"), host.state.activeCombat!!.players.keys)
+
+                            combat.submitAction("four-round-p1", "p1", CombatActionType.DEFEND, 30_001)
+                            p2.sendGameplay(GameplayWireCommand.CombatAction("four-round-p2", "p2", CombatActionType.DEFEND.name))
+                            p3.sendGameplay(GameplayWireCommand.CombatAction("four-round-p3", "p3", CombatActionType.ATTACK.name))
+                            assertEquals(1, host.state.activeCombat!!.round)
+                            assertEquals(setOf("p1", "p2", "p3"), host.state.activeCombat!!.lockedActions.keys)
+
+                            p4.sendGameplay(GameplayWireCommand.CombatAction("four-round-p4", "p4", CombatActionType.DODGE.name))
+                            assertEquals(2, host.state.activeCombat!!.round)
+
+                            p2.refresh()
+                            p3.refresh()
+                            p4.refresh()
+                            assertEquals(host.state, p2Replica.state)
+                            assertEquals(host.state, p3Replica.state)
+                            assertEquals(host.state, p4Replica.state)
+                            val hash = CanonicalStateHasher.hash(host.state)
+                            assertEquals(hash, CanonicalStateHasher.hash(p2Replica.state))
+                            assertEquals(hash, CanonicalStateHasher.hash(p3Replica.state))
+                            assertEquals(hash, CanonicalStateHasher.hash(p4Replica.state))
+                        }
+                    }
+                }
+            }
+        }
     }
 }

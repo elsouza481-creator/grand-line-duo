@@ -5,6 +5,7 @@ import grandlineduo.core.events.CampaignEvent
 import grandlineduo.core.events.EventType
 import grandlineduo.core.model.WorldState
 import grandlineduo.game.character.CharacterCreationTest
+import grandlineduo.game.character.ClassPath
 import grandlineduo.test.assertEquals
 import grandlineduo.test.test
 
@@ -31,9 +32,16 @@ object WireCodecTest {
                 WireMessage.Sync(SyncPlan.UpToDate),
                 WireMessage.Sync(SyncPlan.Delta(listOf(event))),
                 WireMessage.Sync(SyncPlan.FullSnapshot(WorldState(campaignId = "c1", partyBerries = 50))),
+                WireMessage.Welcome("p2", SyncPlan.UpToDate),
+                WireMessage.Welcome("p3", SyncPlan.Delta(listOf(event))),
+                WireMessage.Welcome("p4", SyncPlan.FullSnapshot(WorldState(campaignId = "c1", partyBerries = 50))),
                 WireMessage.Error("bad request"),
                 WireMessage.GameplayCommand(
-                    GameplayWireCommand.CharacterCreate("char-p2", "p2", CharacterCreationTest.validDraft().copy(name = "Namiya"))
+                    GameplayWireCommand.CharacterCreate(
+                        "char-p2",
+                        "p2",
+                        CharacterCreationTest.validDraft().copy(name = "Namiya", classPath = ClassPath.NAVIGATOR),
+                    )
                 ),
                 WireMessage.GameplayCommand(
                     GameplayWireCommand.VoyageAction("voyage-p2", "p2", "PROTECT_SUPPLIES")

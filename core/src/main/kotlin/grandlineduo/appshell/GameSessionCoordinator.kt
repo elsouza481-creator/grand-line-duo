@@ -31,6 +31,9 @@ import grandlineduo.game.ship.VoyageAction
 import grandlineduo.game.ship.VoyageEncounter
 import grandlineduo.game.ship.VoyageIncident
 import grandlineduo.game.ship.VoyageIncidentType
+import grandlineduo.game.world.ExplorationEngine
+import grandlineduo.game.world.ExplorationInteraction
+import grandlineduo.game.world.GrandLineWorldAtlas
 import java.io.Closeable
 import java.net.InetAddress
 import java.nio.file.Files
@@ -38,6 +41,27 @@ import java.nio.file.Path
 import java.util.UUID
 
 enum class SessionMode { NONE, SOLO, HOST_COOP, CLIENT_COOP }
+
+data class SessionHudState(
+    val mode: SessionMode,
+    val localActorId: String,
+    val networkConnectedCount: Int?,
+    val maxNetworkPlayers: Int,
+    val networkConnectedPlayerIds: Set<String>,
+    val createdPlayerIds: Set<String>,
+) {
+    val badge: String
+        get() = when (mode) {
+            SessionMode.HOST_COOP -> {
+                val slots = networkConnectedPlayerIds.sorted().joinToString(", ") { it.uppercase() }
+                "LAN ${networkConnectedCount ?: 1}/$maxNetworkPlayers • slot ${localActorId.uppercase()} • conectados $slots"
+            }
+            SessionMode.CLIENT_COOP ->
+                "LAN • slot ${localActorId.uppercase()} • tripulação ${createdPlayerIds.size}/$maxNetworkPlayers criada"
+            SessionMode.SOLO -> "SOLO • ${localActorId.uppercase()} • tripulação ${createdPlayerIds.size}/2"
+            SessionMode.NONE -> "SEM SESSÃO"
+        }
+}
 
 /**
  * One session API for both single-player and LAN co-op. P1 is always authoritative.
@@ -61,6 +85,62 @@ class GameSessionCoordinator(private val saveRoot: Path? = null) : Closeable {
 
     val boundPort: Int get() = hostServer?.boundPort ?: -1
     val hasRemotePlayer: Boolean get() = hostServer?.hasActiveClient == true || mode == SessionMode.CLIENT_COOP
+
+    @Synchronized
+    fun sessionHudState(): SessionHudState {
+        val createdPlayerIds = if (mode == SessionMode.NONE) {
+            emptySet()
+        } else {
+            runCatching { worldState() }.getOrNull()
+                ?.players
+                ?.values
+                ?.asSequence()
+                ?.filter { it.profile != null }
+                ?.map { it.playerId }
+                ?.filter { it in HUMAN_PLAYER_IDS }
+                ?.toSortedSet()
+                ?: emptySet()
+        }
+        return when (mode) {
+            SessionMode.HOST_COOP -> {
+                val connected = linkedSetOf("p1").apply {
+                    addAll(hostServer?.activeClientIds.orEmpty())
+                }
+                SessionHudState(
+                    mode = mode,
+                    localActorId = actorId,
+                    networkConnectedCount = connected.size,
+                    maxNetworkPlayers = 4,
+                    networkConnectedPlayerIds = connected,
+                    createdPlayerIds = createdPlayerIds,
+                )
+            }
+            SessionMode.CLIENT_COOP -> SessionHudState(
+                mode = mode,
+                localActorId = actorId,
+                networkConnectedCount = null,
+                maxNetworkPlayers = 4,
+                networkConnectedPlayerIds = emptySet(),
+                createdPlayerIds = createdPlayerIds,
+            )
+            SessionMode.SOLO -> SessionHudState(
+                mode = mode,
+                localActorId = actorId,
+                networkConnectedCount = null,
+                maxNetworkPlayers = 2,
+                networkConnectedPlayerIds = emptySet(),
+                createdPlayerIds = createdPlayerIds,
+            )
+            SessionMode.NONE -> SessionHudState(
+                mode = mode,
+                localActorId = actorId,
+                networkConnectedCount = null,
+                maxNetworkPlayers = 0,
+                networkConnectedPlayerIds = emptySet(),
+                createdPlayerIds = emptySet(),
+            )
+        }
+    }
 
     @Synchronized
     fun startSolo(campaignId: String = "gld-${UUID.randomUUID()}"): WorldState {
@@ -88,7 +168,11 @@ class GameSessionCoordinator(private val saveRoot: Path? = null) : Closeable {
         discoveryPort: Int = 37778,
     ) {
         val ad = advertisement ?: throw IllegalStateException("No hosted co-op campaign")
-        LanDiscoveryAdvertiser(targetAddress, discoveryPort).use { it.send(ad) }
+        val liveAdvertisement = ad.copy(
+            currentPlayers = 1 + (hostServer?.activeClientCount ?: 0),
+            maxPlayers = 4,
+        )
+        LanDiscoveryAdvertiser(targetAddress, discoveryPort).use { it.send(liveAdvertisement) }
     }
 
     @Synchronized
@@ -99,7 +183,6 @@ class GameSessionCoordinator(private val saveRoot: Path? = null) : Closeable {
     ): WorldState {
         closeSessionResources()
         mode = SessionMode.CLIENT_COOP
-        actorId = "p2"
         val discovered = LanDiscoveryListener(bindAddress, discoveryPort).use { listener ->
             listener.start()
             listener.receive(timeoutMillis)
@@ -109,10 +192,12 @@ class GameSessionCoordinator(private val saveRoot: Path? = null) : Closeable {
         val connection = LanClientConnection(
             host = discovered.sourceAddress.hostAddress,
             port = ad.tcpPort,
-            peerId = "p2",
+            peerId = LanClientConnection.AUTO_SLOT,
             replica = replica,
         )
         connection.connect()
+        actorId = connection.assignedPeerId
+            ?: throw IllegalStateException("O host não atribuiu um slot de jogador")
         clientReplica = replica
         clientConnection = connection
         return replica.state
@@ -120,9 +205,26 @@ class GameSessionCoordinator(private val saveRoot: Path? = null) : Closeable {
 
     @Synchronized
     fun refresh(): WorldState {
-        if (mode == SessionMode.CLIENT_COOP) clientConnection?.refresh()
-        else if (mode == SessionMode.SOLO || mode == SessionMode.HOST_COOP) postProcessHostState()
+        when (mode) {
+            SessionMode.CLIENT_COOP -> clientConnection?.refresh()
+            SessionMode.SOLO -> {
+                autoPlayCompanion()
+                postProcessHostState()
+            }
+            SessionMode.HOST_COOP -> postProcessHostState()
+            SessionMode.NONE -> Unit
+        }
         return worldState()
+    }
+
+    @Synchronized
+    fun reconnect(): WorldState {
+        require(mode == SessionMode.CLIENT_COOP) { "Only a LAN client can reconnect" }
+        val connection = clientConnection ?: throw IllegalStateException("No client connection")
+        connection.connect()
+        actorId = connection.assignedPeerId
+            ?: throw IllegalStateException("The host did not preserve the assigned player slot")
+        return clientReplica?.state ?: throw IllegalStateException("No client campaign")
     }
 
     @Synchronized
@@ -183,39 +285,64 @@ class GameSessionCoordinator(private val saveRoot: Path? = null) : Closeable {
 
     /** Starts the next sea leg. Only authoritative P1 can change islands. */
     @Synchronized
-    fun advanceCampaign(): WorldState {
+    fun advanceCampaign(targetIslandId: String? = null): WorldState {
         require(mode == SessionMode.SOLO || mode == SessionMode.HOST_COOP) { "Only P1 can set sail" }
         postProcessHostState()
+        if (mode == SessionMode.SOLO) recoverSoloCompanionBeforeVoyage()
         val world = worldState()
+        require(ExplorationEngine.interactionAt(world, "p1") == ExplorationInteraction.DOCK) {
+            "P1 must be at the physical dock to set sail"
+        }
         require(world.activeCombat == null && StormglassPersistenceAdapter.decode(world).combat == null) { "Cannot sail during combat" }
         require(world.activeVoyage == null) { "A voyage incident is already active" }
         val scenarioComplete = StormglassPersistenceAdapter.decode(world).scenario.stage == grandlineduo.game.scenario.ScenarioStage.COMPLETE
         val arcComplete = world.activeArc?.phase == ArcPhase.COMPLETE
         require(scenarioComplete || arcComplete) { "Current chapter is not complete" }
 
-        val chapter = world.worldFlags["campaign.chapter"]?.toIntOrNull() ?: 0
-        if (chapter >= CAMPAIGN_ISLANDS.size) {
-            completeCampaign()
-            return worldState()
+        val voyageIndex = world.worldFlags["world.voyages"]?.toIntOrNull()
+            ?: world.worldFlags["campaign.chapter"]?.toIntOrNull()
+            ?: 0
+        val routes = GrandLineWorldAtlas.availableDestinations(world.campaignId, world.islandId, voyageIndex)
+        val target = if (targetIslandId.isNullOrBlank()) {
+            routes.first()
+        } else {
+            routes.firstOrNull { it.id == targetIslandId }
+                ?: throw IllegalArgumentException("Destination $targetIslandId is not available from ${world.islandId}")
         }
-        val target = CAMPAIGN_ISLANDS[chapter]
-        val incidentType = VoyageIncidentType.entries[chapter % VoyageIncidentType.entries.size]
+        val incidentType = VoyageIncidentType.entries[voyageIndex % VoyageIncidentType.entries.size]
+        val voyageParticipants = if (mode == SessionMode.SOLO) {
+            setOf("p1", "p2")
+        } else {
+            world.players.values
+                .filter { it.profile != null }
+                .map { it.playerId }
+                .filter { it in HUMAN_PLAYER_IDS }
+                .toSet()
+        }
+        require(voyageParticipants.size >= 2) { "At least two created players are required for a co-op voyage" }
         val encounter = VoyageEncounter(
-            VoyageIncident(
+            incident = VoyageIncident(
                 type = incidentType,
-                severity = (1 + chapter / 2).coerceAtMost(4),
-                seed = campaignSeed(world.campaignId) xor (chapter.toLong() * 7919L),
-            )
+                severity = ((target.danger + 2) / 3).coerceIn(1, 4),
+                seed = campaignSeed(world.campaignId) xor (voyageIndex.toLong() * 7919L) xor target.id.hashCode().toLong(),
+            ),
+            participants = voyageParticipants,
         )
         val flags = world.worldFlags + mapOf(
-            "campaign.pendingIsland" to target,
+            "campaign.pendingIsland" to target.id,
+            "campaign.pendingIslandName" to target.name,
+            "campaign.pendingDanger" to target.danger.toString(),
             "campaign.traveling" to "true",
         )
         replaceHostWorld(
             next = world.copy(activeVoyage = encounter, worldFlags = flags),
             prefix = "campaign-sail",
-            fingerprint = "campaign-sail|$chapter|$target",
-            metadata = mapOf("meta.campaignSail" to target),
+            fingerprint = "campaign-sail|$voyageIndex|${target.id}",
+            metadata = mapOf(
+                "meta.campaignSail" to target.id,
+                "meta.campaignSailName" to target.name,
+                "meta.campaignDanger" to target.danger.toString(),
+            ),
         )
         return worldState()
     }
@@ -347,7 +474,8 @@ class GameSessionCoordinator(private val saveRoot: Path? = null) : Closeable {
         }
 
         val activeArcCombat = host.state.activeCombat
-        if (activeArcCombat != null && activeArcCombat.status == grandlineduo.game.combat.CombatStatus.ACTIVE) {
+        if (activeArcCombat != null) {
+            if (activeArcCombat.status != grandlineduo.game.combat.CombatStatus.ACTIVE) return
             if (activeArcCombat.players["p2"]?.hp ?: 0 <= 0) return
             if ("p2" in activeArcCombat.lockedActions) return
             val p1Action = activeArcCombat.lockedActions["p1"]?.type
@@ -362,7 +490,8 @@ class GameSessionCoordinator(private val saveRoot: Path? = null) : Closeable {
 
         val restored = StormglassPersistenceAdapter.decode(host.state)
         val combat = restored.combat
-        if (combat != null && combat.status == grandlineduo.game.combat.CombatStatus.ACTIVE) {
+        if (combat != null) {
+            if (combat.status != grandlineduo.game.combat.CombatStatus.ACTIVE) return
             if (combat.players["p2"]?.hp ?: 0 <= 0 || "p2" in combat.lockedActions) return
             val p1Action = combat.lockedActions["p1"]?.type
             val chosen = when {
@@ -388,6 +517,34 @@ class GameSessionCoordinator(private val saveRoot: Path? = null) : Closeable {
         }
     }
 
+    /** Solo P2 manages its own healing supplies before a new sea leg. */
+    private fun recoverSoloCompanionBeforeVoyage() {
+        val host = hostReplica ?: return
+        var next = host.state
+        val before = next.players["p2"] ?: return
+        if (before.hp >= before.maxHp) return
+
+        var used = 0
+        while ((next.players["p2"]?.hp ?: 0) < (next.players["p2"]?.maxHp ?: 0)) {
+            val inventory = grandlineduo.game.InventoryEngine.read(next, "p2")
+            val itemId = listOf("bandage", "ration").firstOrNull { (inventory.items[it] ?: 0) > 0 } ?: break
+            next = grandlineduo.game.InventoryEngine.use(next, "p2", itemId)
+            used++
+        }
+        if (used == 0) return
+
+        replaceHostWorld(
+            next = next,
+            prefix = "ai-recover",
+            fingerprint = "ai-recover|${host.state.lastEventId}|$used",
+            metadata = mapOf(
+                "meta.aiRecovery" to "p2",
+                "meta.aiRecoveryItems" to used.toString(),
+                "meta.aiRecoveryHp" to next.players.getValue("p2").hp.toString(),
+            ),
+        )
+    }
+
     private fun postProcessHostState() {
         if (mode != SessionMode.SOLO && mode != SessionMode.HOST_COOP) return
         val host = hostReplica ?: return
@@ -397,7 +554,14 @@ class GameSessionCoordinator(private val saveRoot: Path? = null) : Closeable {
         if (scenario.stage == grandlineduo.game.scenario.ScenarioStage.COMPLETE && world.worldFlags["reward.stormglass"] != "true") {
             var rewarded = grandlineduo.game.InventoryEngine.grant(world, "p1", "stormglass_log_pose", 1)
             rewarded = grandlineduo.game.InventoryEngine.grant(rewarded, "p1", "reinforced_coat", 1)
-            rewarded = grandlineduo.game.InventoryEngine.grant(rewarded, "p2", "bandage", 2)
+            world.players.values
+                .asSequence()
+                .filter { it.profile != null && it.playerId != "p1" && it.playerId in HUMAN_PLAYER_IDS }
+                .map { it.playerId }
+                .sorted()
+                .forEach { playerId ->
+                    rewarded = grandlineduo.game.InventoryEngine.grant(rewarded, playerId, "bandage", 2)
+                }
             rewarded = awardPartyEvolutionPoints(rewarded, 2)
             rewarded = rewarded.copy(
                 partyBerries = rewarded.partyBerries + 12_000L,
@@ -419,7 +583,14 @@ class GameSessionCoordinator(private val saveRoot: Path? = null) : Closeable {
                     else -> "kairouseki_shard"
                 }
                 var rewarded = grandlineduo.game.InventoryEngine.grant(world, "p1", loot, 1)
-                rewarded = grandlineduo.game.InventoryEngine.grant(rewarded, "p2", "ration", 2)
+                world.players.values
+                    .asSequence()
+                    .filter { it.profile != null && it.playerId != "p1" && it.playerId in HUMAN_PLAYER_IDS }
+                    .map { it.playerId }
+                    .sorted()
+                    .forEach { playerId ->
+                        rewarded = grandlineduo.game.InventoryEngine.grant(rewarded, playerId, "ration", 2)
+                    }
                 rewarded = awardPartyEvolutionPoints(rewarded, 2 + chapter.coerceAtMost(3))
                 var rewardFlags = rewarded.worldFlags + (rewardKey to "true")
                 val fruitDiscovery = PowerDiscoveryEngine.fruitDiscovery(campaignSeed(rewarded.campaignId))
@@ -439,24 +610,41 @@ class GameSessionCoordinator(private val saveRoot: Path? = null) : Closeable {
         val pending = world.worldFlags["campaign.pendingIsland"]
         if (pending != null && world.activeVoyage == null) {
             val chapter = world.worldFlags["campaign.chapter"]?.toIntOrNull() ?: 0
+            val voyageIndex = world.worldFlags["world.voyages"]?.toIntOrNull() ?: chapter
+            val island = GrandLineWorldAtlas.describe(world.campaignId, pending)
             val flags = world.worldFlags.toMutableMap().also {
                 it.remove("campaign.pendingIsland")
+                it.remove("campaign.pendingIslandName")
+                it.remove("campaign.pendingDanger")
                 it.remove("campaign.traveling")
                 it["campaign.chapter"] = (chapter + 1).toString()
+                it["world.voyages"] = (voyageIndex + 1).toString()
+                it["world.currentIslandName"] = island.name
+                it["world.currentIslandDanger"] = island.danger.toString()
             }
             replaceHostWorld(
                 world.copy(islandId = pending, activeArc = null, worldFlags = flags),
                 "campaign-arrive",
-                "campaign-arrive|$pending|${chapter + 1}",
-                mapOf("meta.campaignArrive" to pending),
+                "campaign-arrive|$pending|${voyageIndex + 1}",
+                mapOf(
+                    "meta.campaignArrive" to pending,
+                    "meta.campaignArriveName" to island.name,
+                    "meta.campaignDanger" to island.danger.toString(),
+                ),
             )
             val arrived = host.state
+            val participants = arrived.players.values
+                .asSequence()
+                .filter { it.profile != null && it.playerId in HUMAN_PLAYER_IDS }
+                .map { it.playerId }
+                .toSet()
             val context = ArcStartContext(
-                seed = campaignSeed(arrived.campaignId) xor (chapter.toLong() * 104729L),
+                seed = campaignSeed(arrived.campaignId) xor (voyageIndex.toLong() * 104729L) xor pending.hashCode().toLong(),
                 islandId = pending,
-                presentFactions = factionsFor(pending),
-                worldFlags = worldFlagsForIsland(pending),
+                presentFactions = island.factions,
+                worldFlags = island.flags,
                 totalBounty = arrived.players.values.sumOf { it.bounty },
+                participantIds = participants,
             )
             ArcCoordinator(host, durableStore = durableStore).startArc(nextCommandId("arc-start"), context, System.currentTimeMillis())
         }
@@ -467,23 +655,6 @@ class GameSessionCoordinator(private val saveRoot: Path? = null) : Closeable {
             val profile = player.profile ?: return@mapValues player
             player.copy(profile = ProgressionEngine.awardEvolutionPoints(profile, amount))
         })
-
-    private fun completeCampaign() {
-        val world = hostReplica!!.state
-        if (world.worldFlags["campaign.complete"] == "true") return
-        val totalBounty = world.players.values.sumOf { it.bounty }
-        val epilogue = when {
-            totalBounty >= 100_000_000L -> "A dupla desaparece no horizonte como uma das tripulações mais procuradas de sua geração. A Marinha mantém seus cartazes em todas as rotas."
-            world.socialState.factionStanding.values.any { it >= 50 } -> "As ilhas libertadas transformam seus nomes em histórias de resistência. Portos aliados continuam esperando o retorno da tripulação."
-            else -> "O Log Pose finalmente estabiliza. Vocês sobreviveram à rota sem aceitar que o mundo escolhesse o destino por vocês."
-        }
-        replaceHostWorld(
-            world.copy(worldFlags = world.worldFlags + mapOf("campaign.complete" to "true", "campaign.epilogue" to epilogue)),
-            "campaign-complete",
-            "campaign-complete|${world.campaignId}",
-            mapOf("meta.campaignComplete" to "true"),
-        )
-    }
 
     private fun replaceHostWorld(next: WorldState, prefix: String, fingerprint: String, metadata: Map<String, String>) {
         val host = hostReplica ?: throw IllegalStateException("No authoritative host")
@@ -500,20 +671,6 @@ class GameSessionCoordinator(private val saveRoot: Path? = null) : Closeable {
         durableStore?.commit(result.event, host.state)
     }
 
-    private fun factionsFor(islandId: String): Set<String> = when (islandId) {
-        "emberwake" -> setOf("PIRATES")
-        "brineveil" -> setOf("MARINES")
-        "gearfall" -> setOf("UNDERWORLD")
-        "hollow-crown" -> setOf("PIRATES")
-        "meridian-vault" -> setOf("MARINES", "UNDERWORLD")
-        else -> emptySet()
-    }
-
-    private fun worldFlagsForIsland(islandId: String): Set<String> = when (islandId) {
-        "hollow-crown", "meridian-vault" -> setOf("ANCIENT_RUINS")
-        else -> emptySet()
-    }
-
     private fun initialWorld(campaignId: String, modeFlag: String): WorldState = WorldState(
         campaignId = campaignId,
         islandId = "stormglass-cay",
@@ -526,7 +683,10 @@ class GameSessionCoordinator(private val saveRoot: Path? = null) : Closeable {
         worldFlags = mapOf(
             "campaign.mode" to modeFlag,
             "campaign.chapter" to "0",
-            "campaign.version" to "1",
+            "campaign.version" to "2",
+            "world.voyages" to "0",
+            "world.currentIslandName" to "Stormglass Cay",
+            "world.currentIslandDanger" to "2",
         ),
     )
 
@@ -559,10 +719,6 @@ class GameSessionCoordinator(private val saveRoot: Path? = null) : Closeable {
     private fun campaignSeed(campaignId: String): Long = campaignId.hashCode().toLong() * 0x9E3779B9L
     private fun nextCommandId(prefix: String): String = "$prefix-${UUID.randomUUID()}"
 
-    companion object {
-        val CAMPAIGN_ISLANDS = listOf("emberwake", "brineveil", "gearfall", "hollow-crown", "meridian-vault")
-    }
-
     private fun closeSessionResources() {
         runCatching { clientConnection?.close() }
         runCatching { hostServer?.close() }
@@ -578,4 +734,8 @@ class GameSessionCoordinator(private val saveRoot: Path? = null) : Closeable {
     }
 
     override fun close() = closeSessionResources()
+
+    companion object {
+        private val HUMAN_PLAYER_IDS = setOf("p1", "p2", "p3", "p4")
+    }
 }

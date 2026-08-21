@@ -6,9 +6,11 @@ import android.os.Bundle
 import android.view.Window
 import android.widget.Toast
 import grandlineduo.appshell.GameAction
+import grandlineduo.appshell.GameActionRouter
 import grandlineduo.appshell.GamePresenter
 import grandlineduo.appshell.GameScreen
 import grandlineduo.appshell.GameSessionCoordinator
+import grandlineduo.appshell.SessionHudPresenter
 import grandlineduo.appshell.SessionMode
 import grandlineduo.game.combat.CombatActionType
 import grandlineduo.game.ship.VoyageAction
@@ -24,6 +26,7 @@ class MainActivity : Activity() {
     private var syncTask: ScheduledFuture<*>? = null
     private var currentOverlay: String? = null
     private var gameplayView: GameplayScreen? = null
+    private var explorationView: ExplorationScreen? = null
     private var characterView: CharacterCreationScreen? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -38,6 +41,7 @@ class MainActivity : Activity() {
         stopSync()
         currentOverlay = null
         gameplayView = null
+        explorationView = null
         characterView = null
         val home = HomeScreen(this).apply {
             onSolo = { startSolo() }
@@ -99,7 +103,10 @@ class MainActivity : Activity() {
             renderOverlay(currentOverlay!!)
             return
         }
-        val model = GamePresenter.present(world, coordinator.actorId)
+        val model = SessionHudPresenter.decorate(
+            GamePresenter.present(world, coordinator.actorId),
+            coordinator.sessionHudState(),
+        )
         if (model.screen == GameScreen.CHARACTER_CREATION) {
             if (characterView != null) return
             val creator = CharacterCreationScreen(this).apply {
@@ -116,17 +123,32 @@ class MainActivity : Activity() {
                 onBack = { resetToHome() }
             }
             gameplayView = null
+            explorationView = null
             characterView = creator
             setContentView(creator)
             return
         }
         characterView = null
+
+        if (model.exploration != null) {
+            gameplayView = null
+            val view = explorationView ?: ExplorationScreen(this).also {
+                explorationView = it
+                it.onAction = { action -> dispatch(action) }
+                it.onHome = { resetToHome() }
+            }
+            setContentView(view)
+            view.render(model)
+            return
+        }
+
+        explorationView = null
         val view = gameplayView ?: GameplayScreen(this).also {
             gameplayView = it
             it.onAction = { action -> dispatch(action) }
             it.onHome = { resetToHome() }
-            setContentView(it)
         }
+        setContentView(view)
         view.render(model)
     }
 
@@ -138,13 +160,15 @@ class MainActivity : Activity() {
         }
         worker.execute {
             try {
-                when (action.kind) {
-                    "SCENARIO" -> coordinator.submitScenarioChoice(action.id)
-                    "ARC" -> coordinator.submitArcChoice(action.id)
-                    "COMBAT" -> coordinator.submitCombatAction(CombatActionType.valueOf(action.id))
-                    "POWER" -> coordinator.submitPowerAction(action.id)
-                    "VOYAGE" -> coordinator.submitVoyageAction(VoyageAction.valueOf(action.id))
-                    "CAMPAIGN" -> coordinator.advanceCampaign()
+                when {
+                    action.kind == "SCENARIO" -> coordinator.submitScenarioChoice(action.id)
+                    action.kind == "ARC" -> coordinator.submitArcChoice(action.id)
+                    action.kind == "COMBAT" -> coordinator.submitCombatAction(CombatActionType.valueOf(action.id))
+                    action.kind == "POWER" -> coordinator.submitPowerAction(action.id)
+                    action.kind == "VOYAGE" -> coordinator.submitVoyageAction(VoyageAction.valueOf(action.id))
+                    GameActionRouter.routesToWorldAction(action.kind) ->
+                        coordinator.submitWorldAction(action.kind, action.id, 1)
+                    action.kind == "CAMPAIGN" -> coordinator.advanceCampaign(action.id)
                     else -> throw IllegalArgumentException("Ação não suportada: ${action.kind}")
                 }
                 postWorld()
@@ -170,6 +194,13 @@ class MainActivity : Activity() {
                             }
                         }
                     }
+                }
+                view.render(world, coordinator.actorId)
+                setContentView(view)
+            }
+            "QUESTS" -> {
+                val view = QuestJournalScreen(this).apply {
+                    onBack = { closeOverlay() }
                 }
                 view.render(world, coordinator.actorId)
                 setContentView(view)
@@ -232,6 +263,7 @@ class MainActivity : Activity() {
     private fun closeOverlay() {
         currentOverlay = null
         gameplayView = null
+        explorationView = null
         renderWorld()
     }
 

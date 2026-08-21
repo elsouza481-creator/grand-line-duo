@@ -8,6 +8,7 @@ sealed interface WireMessage {
     data class Command(val command: GrantBerriesCommand) : WireMessage
     data class Event(val event: CampaignEvent) : WireMessage
     data class Sync(val plan: SyncPlan) : WireMessage
+    data class Welcome(val peerId: String, val plan: SyncPlan) : WireMessage
     data class Error(val message: String) : WireMessage
     data class GameplayCommand(val command: GameplayWireCommand) : WireMessage
     data class Refresh(val hello: ReconnectHello) : WireMessage

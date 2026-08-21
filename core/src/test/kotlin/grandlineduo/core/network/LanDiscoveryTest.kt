@@ -14,6 +14,8 @@ object LanDiscoveryTest {
                 campaignId = "campaign-1",
                 hostName = "Kairo's crew",
                 tcpPort = 43210,
+                currentPlayers = 3,
+                maxPlayers = 4,
             )
             val bytes = LanDiscoveryCodec.encode(ad)
             assertEquals(ad, LanDiscoveryCodec.decode(bytes))
@@ -22,6 +24,45 @@ object LanDiscoveryTest {
             var failed = false
             try { LanDiscoveryCodec.decode(bytes) } catch (_: LanDiscoveryException) { failed = true }
             assertTrue(failed)
+        }
+
+        test("protocol v6 discovery enforces four player room capacity") {
+            assertEquals(6, PROTOCOL_VERSION)
+            val valid = LanDiscoveryAdvertisement(
+                protocolVersion = PROTOCOL_VERSION,
+                sessionId = "room-capacity",
+                campaignId = "campaign-capacity",
+                hostName = "Capacity Crew",
+                tcpPort = 43211,
+                currentPlayers = 4,
+                maxPlayers = 4,
+            )
+            assertEquals(4, valid.currentPlayers)
+            assertEquals(4, valid.maxPlayers)
+
+            var zeroRejected = false
+            try {
+                valid.copy(currentPlayers = 0)
+            } catch (_: IllegalArgumentException) {
+                zeroRejected = true
+            }
+            assertTrue(zeroRejected)
+
+            var overflowRejected = false
+            try {
+                valid.copy(currentPlayers = 5)
+            } catch (_: IllegalArgumentException) {
+                overflowRejected = true
+            }
+            assertTrue(overflowRejected)
+
+            var wrongCapacityRejected = false
+            try {
+                valid.copy(maxPlayers = 3, currentPlayers = 3)
+            } catch (_: IllegalArgumentException) {
+                wrongCapacityRejected = true
+            }
+            assertTrue(wrongCapacityRejected)
         }
 
         test("P2 discovers P1 advertisement over real UDP loopback") {
@@ -33,6 +74,8 @@ object LanDiscoveryTest {
                     campaignId = "campaign-udp",
                     hostName = "Stormglass Crew",
                     tcpPort = 45678,
+                    currentPlayers = 2,
+                    maxPlayers = 4,
                 )
                 LanDiscoveryAdvertiser(
                     targetAddress = InetAddress.getByName("127.0.0.1"),
@@ -57,6 +100,8 @@ object LanDiscoveryTest {
                     campaignId = "future-campaign",
                     hostName = "Future Crew",
                     tcpPort = 45679,
+                    currentPlayers = 1,
+                    maxPlayers = 4,
                 )
                 LanDiscoveryAdvertiser(
                     targetAddress = InetAddress.getByName("127.0.0.1"),

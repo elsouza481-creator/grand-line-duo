@@ -46,7 +46,6 @@ class ArcCoordinator(
 
     @Synchronized
     fun choose(commandId: String, playerId: String, choiceId: String, hostTimestamp: Long): CampaignEvent {
-        require(playerId == "p1" || playerId == "p2") { "Unknown player $playerId" }
         val fingerprint = "arc-choice|$playerId|$choiceId"
         hostReplica.events.firstOrNull { it.commandId == commandId }?.let { existing ->
             require(existing.commandFingerprint == fingerprint) { "Command ID collision" }
@@ -55,7 +54,22 @@ class ArcCoordinator(
         }
         require(hostReplica.state.activeCombat == null) { "Arc choice is blocked while combat is active" }
         val current = hostReplica.state.activeArc ?: throw IllegalArgumentException("No active arc")
-        val outcome = ArcEngine.choose(current, playerId, choiceId)
+        require(playerId in current.participantIds) { "Unknown player $playerId" }
+        val baseOutcome = ArcEngine.choose(current, playerId, choiceId)
+        val scholarTier = ClassMasteryArcResolver.scholarTierForChoice(
+            hostReplica.state.players[playerId]?.profile,
+            current.phase,
+            choiceId,
+        )
+        val outcome = if (scholarTier > 0) {
+            baseOutcome.copy(
+                state = ClassMasteryArcResolver.applyScholarAnalysis(baseOutcome.state, scholarTier),
+                beats = baseOutcome.beats + ArcBeat(
+                    text = "O conhecimento especializado transforma as pistas em uma análise tática compartilhada.",
+                    visibleTo = baseOutcome.state.participantIds,
+                ),
+            )
+        } else baseOutcome
         val nextFlags = if (outcome.state.phase == ArcPhase.COMPLETE) {
             val prefix = "ARC_HISTORY:${outcome.state.arcId}:"
             hostReplica.state.worldFlags.toMutableMap().also { flags ->
@@ -84,6 +98,7 @@ class ArcCoordinator(
             "meta.arcEscalation" to outcome.state.escalation.toString(),
             "meta.arcBossStarted" to (bossCombat != null).toString(),
         )
+        if (scholarTier > 0) metadata["meta.scholarAnalysisTier"] = scholarTier.toString()
         outcome.beats.forEachIndexed { index, beat ->
             metadata["meta.arcBeat.$index.visible"] = beat.visibleTo.sorted().joinToString(",")
             metadata["meta.arcBeat.$index.text"] = beat.text
@@ -110,6 +125,7 @@ class ArcCoordinator(
     private fun startFingerprint(context: ArcStartContext): String = buildString {
         append("arc-start|").append(context.seed).append('|').append(context.islandId).append('|')
         append(context.totalBounty).append('|')
+        context.participantIds.sorted().forEach { append("p=").append(it).append(';') }
         context.presentFactions.sorted().forEach { append("f=").append(it).append(';') }
         context.worldFlags.sorted().forEach { append("w=").append(it).append(';') }
     }

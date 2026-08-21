@@ -1,12 +1,19 @@
 package grandlineduo.game.scenario
 
 class StormglassCayScenario {
-    fun initialState(): ScenarioState = ScenarioState()
+    fun initialState(participantIds: Set<String> = LEGACY_PARTICIPANTS): ScenarioState {
+        val participants = validateParticipants(participantIds)
+        return ScenarioState(
+            participantIds = participants,
+            privateKnowledge = participants.associateWith { emptySet() },
+        )
+    }
 
     fun view(state: ScenarioState, playerId: String): ScenarioView {
-        requirePlayer(playerId)
+        requirePlayer(state, playerId)
+        val leadRole = playerId == "p1" || playerId == "p3"
         val choices = when (state.stage) {
-            ScenarioStage.ARRIVAL -> if (playerId == "p1") {
+            ScenarioStage.ARRIVAL -> if (leadRole) {
                 listOf(
                     ScenarioChoice("help_dockworker", "Ajudar o estivador ferido"),
                     ScenarioChoice("visit_tavern", "Entrar na Taverna da Âncora Quebrada"),
@@ -18,7 +25,7 @@ class StormglassCayScenario {
                 )
             }
 
-            ScenarioStage.INVESTIGATION -> if (playerId == "p1") {
+            ScenarioStage.INVESTIGATION -> if (leadRole) {
                 buildList {
                     if ("dockworker_saved" in state.sharedFlags) {
                         add(ScenarioChoice("question_dockworker", "Perguntar ao estivador sobre o armazém"))
@@ -27,8 +34,8 @@ class StormglassCayScenario {
                 }
             } else {
                 buildList {
-                    if ("marine_manifest" in state.privateKnowledge["p2"].orEmpty()) {
-                        add(ScenarioChoice("reveal_manifest", "Mostrar o manifesto secreto ao parceiro"))
+                    if ("marine_manifest" in state.privateKnowledge[playerId].orEmpty()) {
+                        add(ScenarioChoice("reveal_manifest", "Mostrar o manifesto secreto à tripulação"))
                         add(ScenarioChoice("keep_manifest_secret", "Guardar o manifesto em segredo"))
                     }
                     add(ScenarioChoice("inspect_rooftops", "Observar o armazém pelos telhados"))
@@ -62,7 +69,7 @@ class StormglassCayScenario {
     }
 
     fun choose(state: ScenarioState, playerId: String, choiceId: String): ScenarioOutcome {
-        requirePlayer(playerId)
+        requirePlayer(state, playerId)
         if (playerId in state.actedThisStage) {
             throw ScenarioChoiceException("$playerId already acted in ${state.stage}")
         }
@@ -76,7 +83,7 @@ class StormglassCayScenario {
         when (choiceId) {
             "help_dockworker" -> {
                 shared = shared + "dockworker_saved"
-                beats += sharedBeat("Vocês estabilizam o estivador. Antes de partir, ele aponta para o Armazém 7 e sussurra que a Marinha está escondendo uma carga apreendida.")
+                beats += sharedBeat(state.participantIds, "Vocês estabilizam o estivador. Antes de partir, ele aponta para o Armazém 7 e sussurra que a Marinha está escondendo uma carga apreendida.")
             }
             "visit_tavern" -> {
                 shared = shared + "tavern_rumor"
@@ -92,15 +99,15 @@ class StormglassCayScenario {
             }
             "question_dockworker" -> {
                 shared = shared + "warehouse_side_door"
-                beats += sharedBeat("O estivador revela uma porta lateral usada pelos carregadores. É uma entrada melhor do que o portão principal.")
+                beats += sharedBeat(state.participantIds, "O estivador revela uma porta lateral usada pelos carregadores. É uma entrada melhor do que o portão principal.")
             }
             "search_rumors" -> {
                 shared = shared + "captain_veyron_named"
-                beats += sharedBeat("Os rumores convergem para um nome: Capitão Veyron, oficial responsável pela apreensão.")
+                beats += sharedBeat(state.participantIds, "Os rumores convergem para um nome: Capitão Veyron, oficial responsável pela apreensão.")
             }
             "reveal_manifest" -> {
                 shared = shared + "manifest_revealed"
-                beats += sharedBeat("P2 revela o manifesto: o objetivo real é recuperar o Log Pose antes que a carga seja transferida.")
+                beats += sharedBeat(state.participantIds, "O manifesto é revelado à tripulação: o objetivo real é recuperar o Log Pose antes que a carga seja transferida.")
             }
             "keep_manifest_secret" -> {
                 privateKnowledge = addPrivate(privateKnowledge, playerId, "manifest_kept_secret")
@@ -112,13 +119,13 @@ class StormglassCayScenario {
             }
             "enter_warehouse" -> {
                 shared = shared + "warehouse_entered"
-                beats += sharedBeat("Vocês cruzam a entrada do Armazém 7. Passos pesados ecoam entre as caixas.")
+                beats += sharedBeat(state.participantIds, "Vocês cruzam a entrada do Armazém 7. Passos pesados ecoam entre as caixas.")
             }
             "set_ambush" -> {
                 shared = shared + "ambush_prepared"
-                beats += sharedBeat("Vocês transformam cordas, roldanas e caixas em uma armadilha improvisada antes de avançar.")
+                beats += sharedBeat(state.participantIds, "Vocês transformam cordas, roldanas e caixas em uma armadilha improvisada antes de avançar.")
             }
-            "return_to_ship" -> beats += sharedBeat("Com a sirene da Marinha ao fundo, vocês correm pelo cais e alcançam o navio.")
+            "return_to_ship" -> beats += sharedBeat(state.participantIds, "Com a sirene da Marinha ao fundo, vocês correm pelo cais e alcançam o navio.")
         }
 
         var next = state.copy(
@@ -142,7 +149,7 @@ class StormglassCayScenario {
     }
 
     private fun advanceIfReady(state: ScenarioState): ScenarioState {
-        if (state.actedThisStage != setOf("p1", "p2")) return state
+        if (state.actedThisStage != state.participantIds) return state
         val nextStage = when (state.stage) {
             ScenarioStage.ARRIVAL -> ScenarioStage.INVESTIGATION
             ScenarioStage.INVESTIGATION -> ScenarioStage.WAREHOUSE
@@ -159,11 +166,22 @@ class StormglassCayScenario {
         value: String,
     ): Map<String, Set<String>> = current + (playerId to (current[playerId].orEmpty() + value))
 
-    private fun sharedBeat(text: String) = NarrativeBeat(text, setOf("p1", "p2"))
+    private fun sharedBeat(participantIds: Set<String>, text: String) = NarrativeBeat(text, participantIds)
     private fun privateBeat(playerId: String, text: String) = NarrativeBeat(text, setOf(playerId))
 
-    private fun requirePlayer(playerId: String) {
-        if (playerId != "p1" && playerId != "p2") throw ScenarioChoiceException("Unknown player $playerId")
+    private fun requirePlayer(state: ScenarioState, playerId: String) {
+        if (playerId !in state.participantIds) throw ScenarioChoiceException("Unknown player $playerId")
+    }
+
+    private fun validateParticipants(participantIds: Set<String>): Set<String> {
+        val participants = participantIds.toSortedSet()
+        if (participants.size !in 2..4 || participants.any { it !in HUMAN_PLAYER_IDS }) {
+            throw ScenarioChoiceException("Stormglass requires two to four human participants")
+        }
+        if ("p1" !in participants || "p2" !in participants) {
+            throw ScenarioChoiceException("Stormglass requires P1 and P2")
+        }
+        return participants
     }
 
     private fun descriptionFor(stage: ScenarioStage, playerId: String): String = when (stage) {
@@ -173,5 +191,10 @@ class StormglassCayScenario {
         ScenarioStage.MINIBOSS -> "O Capitão Veyron fecha a saída e leva a mão ao sabre coberto por Busoshoku."
         ScenarioStage.RETURN_TO_SHIP -> "Reforços se aproximam. O Log Pose está com vocês, mas a ilha entrou em alerta."
         ScenarioStage.COMPLETE -> "Stormglass Cay fica para trás enquanto uma nova rota se estabiliza no Log Pose."
+    }
+
+    companion object {
+        val LEGACY_PARTICIPANTS: Set<String> = setOf("p1", "p2")
+        private val HUMAN_PLAYER_IDS: Set<String> = setOf("p1", "p2", "p3", "p4")
     }
 }

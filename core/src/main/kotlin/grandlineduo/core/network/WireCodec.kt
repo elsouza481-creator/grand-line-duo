@@ -5,6 +5,7 @@ import grandlineduo.core.persistence.EventCodec
 import grandlineduo.core.persistence.WorldStateCodec
 import grandlineduo.game.character.Attribute
 import grandlineduo.game.character.CharacterDraft
+import grandlineduo.game.character.ClassPath
 import grandlineduo.game.character.Skill
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
@@ -176,6 +177,11 @@ object WireCodec {
                         data.writeUTF(message.hello.stateHash)
                         data.writeUTF(message.hello.peerId)
                     }
+                    is WireMessage.Welcome -> {
+                        data.writeByte(10)
+                        data.writeUTF(message.peerId)
+                        data.writeSyncPlan(message.plan)
+                    }
                 }
             }
         }.toByteArray()
@@ -268,6 +274,10 @@ object WireCodec {
                         peerId = data.readUTF(),
                     )
                 )
+                10 -> WireMessage.Welcome(
+                    peerId = data.readUTF(),
+                    plan = data.readSyncPlan(),
+                )
                 else -> throw WireProtocolException("Unknown wire message type $type")
             }
             if (data.available() != 0) throw WireProtocolException("Trailing payload bytes")
@@ -279,6 +289,31 @@ object WireCodec {
         throw WireProtocolException("Invalid wire payload: ${e.message}")
     }
 
+    private fun DataOutputStream.writeSyncPlan(plan: SyncPlan) {
+        when (plan) {
+            SyncPlan.UpToDate -> writeByte(1)
+            is SyncPlan.Delta -> {
+                writeByte(2)
+                writeInt(plan.events.size)
+                plan.events.forEach { writeSized(EventCodec.encode(it)) }
+            }
+            is SyncPlan.FullSnapshot -> {
+                writeByte(3)
+                writeSized(WorldStateCodec.encode(plan.state))
+            }
+        }
+    }
+
+    private fun DataInputStream.readSyncPlan(): SyncPlan = when (val type = readUnsignedByte()) {
+        1 -> SyncPlan.UpToDate
+        2 -> {
+            val count = readInt()
+            if (count !in 0..100_000) throw WireProtocolException("Invalid welcome delta count")
+            SyncPlan.Delta(List(count) { EventCodec.decode(readSized()) })
+        }
+        3 -> SyncPlan.FullSnapshot(WorldStateCodec.decode(readSized()))
+        else -> throw WireProtocolException("Unknown welcome sync plan type $type")
+    }
 
     private fun DataOutputStream.writeCharacterDraft(draft: CharacterDraft) {
         writeUTF(draft.name)
@@ -310,6 +345,9 @@ object WireCodec {
             writeUTF(skill.name)
             writeInt(value)
         }
+
+        writeBoolean(draft.classPath != null)
+        draft.classPath?.let { writeUTF(it.name) }
     }
 
     private fun DataInputStream.readCharacterDraft(): CharacterDraft {
@@ -347,6 +385,8 @@ object WireCodec {
             skills[skill] = readInt()
         }
 
+        val classPath = if (readBoolean()) ClassPath.valueOf(readUTF()) else null
+
         return CharacterDraft(
             name = name,
             age = age,
@@ -365,6 +405,7 @@ object WireCodec {
             defect = defect,
             attributes = attributes,
             skills = skills,
+            classPath = classPath,
         )
     }
 

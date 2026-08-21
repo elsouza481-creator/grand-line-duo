@@ -168,6 +168,21 @@ object CanonicalStateHasher {
                 append("profile.trainingMarks=").append(profile.trainingMarks.size).append(';')
                 profile.trainingMarks.sorted().forEach { field("profile.trainingMark", it) }
 
+                profile.classMastery?.let { mastery ->
+                    field("profile.classMasteryVersion", "1")
+                    field("profile.classMastery.primaryClass", mastery.primaryClass.name)
+                    append("profile.classMastery.levels=").append(mastery.levels.size).append(';')
+                    mastery.levels.entries.sortedBy { it.key.ordinal }.forEach { (path, level) ->
+                        field("profile.classMastery.level.path", path.name)
+                        field("profile.classMastery.level.value", level.toString())
+                    }
+                    append("profile.classMastery.experience=").append(mastery.experience.size).append(';')
+                    mastery.experience.entries.sortedBy { it.key.ordinal }.forEach { (path, experience) ->
+                        field("profile.classMastery.experience.path", path.name)
+                        field("profile.classMastery.experience.value", experience.toString())
+                    }
+                }
+
                 if (profile.haki.latentHaoshoku || profile.haki.disciplines.isNotEmpty() || profile.devilFruit != null) {
                     field("profile.powerVersion", "1")
                     if (profile.haki.latentHaoshoku || profile.haki.disciplines.isNotEmpty()) {

@@ -19,6 +19,25 @@ object VoyageEngineTest {
             assertTrue(rejected)
         }
 
+        test("four player voyage waits for every declared participant before resolving") {
+            val incident = VoyageIncident(VoyageIncidentType.SEA_KING, severity = 3, seed = 404)
+            var encounter = VoyageEncounter(
+                incident = incident,
+                participants = setOf("p1", "p2", "p3", "p4"),
+            )
+            encounter = VoyageEngine.lockAction(encounter, "p1", VoyageAction.HELM)
+            encounter = VoyageEngine.lockAction(encounter, "p2", VoyageAction.CANNONS)
+            encounter = VoyageEngine.lockAction(encounter, "p3", VoyageAction.REPAIR)
+            assertEquals(null, VoyageEngine.resolveIfReady(ShipEngine.starterShip("g", "Gull"), encounter))
+
+            var outsiderRejected = false
+            try { VoyageEngine.lockAction(encounter, "p5", VoyageAction.LOOKOUT) } catch (_: IllegalArgumentException) { outsiderRejected = true }
+            assertTrue(outsiderRejected)
+
+            encounter = VoyageEngine.lockAction(encounter, "p4", VoyageAction.LOOKOUT)
+            assertTrue(VoyageEngine.resolveIfReady(ShipEngine.starterShip("g", "Gull"), encounter) != null)
+        }
+
         test("same ship incident seed and actions resolve voyage deterministically") {
             val ship = ShipEngine.starterShip("g", "Gull")
             val encounter = ready(

@@ -7,6 +7,9 @@ import grandlineduo.game.combat.EnemyAttackType
 import grandlineduo.game.InventoryEngine
 import grandlineduo.game.scenario.ScenarioStage
 import grandlineduo.game.ship.VoyageAction
+import grandlineduo.game.world.ExplorationDirection
+import grandlineduo.game.world.ExplorationEngine
+import grandlineduo.game.world.ExplorationInteraction
 import grandlineduo.test.assertEquals
 import grandlineduo.test.assertTrue
 import grandlineduo.test.test
@@ -34,6 +37,16 @@ object CampaignLoopTest {
                 assertTrue(session.worldState().players.getValue("p1").profile!!.evolutionPoints >= 2)
                 assertTrue(session.worldState().players.getValue("p2").profile!!.evolutionPoints >= 2)
 
+                var rejectedAwayFromDock = false
+                try {
+                    session.advanceCampaign()
+                } catch (_: IllegalArgumentException) {
+                    rejectedAwayFromDock = true
+                }
+                assertTrue(rejectedAwayFromDock, "Setting sail must require P1 to stand on the physical dock")
+                assertEquals(null, session.worldState().activeVoyage)
+
+                assertTrue(moveP1ToDock(session), "Starter route should reach the dock without an encounter")
                 session.advanceCampaign()
                 assertTrue(session.worldState().activeVoyage != null)
                 session.submitVoyageAction(VoyageAction.HELM)
@@ -43,55 +56,100 @@ object CampaignLoopTest {
                 assertEquals(ArcPhase.ARRIVAL, after.activeArc!!.phase)
                 assertEquals("emberwake", after.islandId)
             }
+        }
 
-
-        test("solo campaign can reach the final epilogue through public gameplay APIs") {
-            val root = Files.createTempDirectory("gld-full-campaign")
+        test("solo campaign remains playable beyond the old five island ending") {
+            val root = Files.createTempDirectory("gld-endless-campaign")
             GameSessionCoordinator(root).use { session ->
-                session.startSolo("campaign-complete-e2e")
+                session.startSolo("campaign-endless-e2e")
                 session.createCharacter(GameSessionCoordinatorTest.validDraft("Arlen"))
                 var steps = 0
-                while (session.worldState().worldFlags["campaign.complete"] != "true" && steps++ < 700) {
+                val visited = linkedSetOf<String>()
+
+                while ((session.worldState().worldFlags["world.voyages"]?.toIntOrNull() ?: 0) < 8 && steps++ < 1000) {
                     val world = session.worldState()
+                    visited += world.islandId
                     val view = GamePresenter.present(world, "p1")
-                    when (view.screen) {
-                        GameScreen.STORY -> session.submitScenarioChoice(view.actions.first().id)
-                        GameScreen.ARC -> session.submitArcChoice(view.actions.first().id)
-                        GameScreen.COMBAT -> {
-                            val combat = world.activeCombat ?: StormglassPersistenceAdapter.decode(world).combat!!
-                            val action = if (combat.telegraph.targetPlayerId == "p1" && combat.telegraph.type == EnemyAttackType.HEAVY_STRIKE) {
-                                CombatActionType.DODGE
-                            } else CombatActionType.SETUP
-                            session.submitCombatAction(action)
-                        }
-                        GameScreen.VOYAGE -> session.submitVoyageAction(VoyageAction.HELM)
-                        GameScreen.HUB -> {
-                            var current = session.worldState()
-                            var inventory = InventoryEngine.read(current, "p1")
-                            while (current.players.getValue("p1").hp < current.players.getValue("p1").maxHp && (inventory.items["bandage"] ?: 0) > 0) {
-                                session.submitInventoryAction("USE", "bandage")
-                                current = session.worldState()
-                                inventory = InventoryEngine.read(current, "p1")
+                    try {
+                        when (view.screen) {
+                            GameScreen.STORY -> session.submitScenarioChoice(view.actions.first().id)
+                            GameScreen.ARC -> session.submitArcChoice(view.actions.first().id)
+                            GameScreen.COMBAT -> {
+                                val combat = world.activeCombat ?: StormglassPersistenceAdapter.decode(world).combat!!
+                                val action = if (combat.telegraph.targetPlayerId == "p1" && combat.telegraph.type == EnemyAttackType.HEAVY_STRIKE) {
+                                    CombatActionType.DODGE
+                                } else CombatActionType.SETUP
+                                session.submitCombatAction(action)
                             }
-                            if (current.players.getValue("p1").hp < current.players.getValue("p1").maxHp && current.partyBerries >= 250L) {
-                                runCatching { session.submitWorldAction("SHOP_BUY", "bandage", 2) }
-                                repeat(2) { runCatching { session.submitInventoryAction("USE", "bandage") } }
+                            GameScreen.VOYAGE -> session.submitVoyageAction(VoyageAction.HELM)
+                            GameScreen.HUB -> {
+                                var current = session.worldState()
+                                var inventory = InventoryEngine.read(current, "p1")
+                                while (current.players.getValue("p1").hp < current.players.getValue("p1").maxHp && (inventory.items["bandage"] ?: 0) > 0) {
+                                    session.submitInventoryAction("USE", "bandage")
+                                    current = session.worldState()
+                                    inventory = InventoryEngine.read(current, "p1")
+                                }
+                                if (current.players.getValue("p1").hp < current.players.getValue("p1").maxHp && current.partyBerries >= 250L) {
+                                    runCatching { session.submitWorldAction("SHOP_BUY", "bandage", 2) }
+                                    repeat(2) { runCatching { session.submitInventoryAction("USE", "bandage") } }
+                                }
+                                if (moveP1ToDock(session)) {
+                                    val dockView = GamePresenter.present(session.worldState(), "p1")
+                                    val sail = dockView.actions.first { it.kind == "CAMPAIGN" }
+                                    session.advanceCampaign(sail.id)
+                                }
                             }
-                            session.advanceCampaign()
+                            GameScreen.WAITING_FOR_PARTNER -> session.refresh()
+                            GameScreen.END -> error("Endless world must not enter a fixed epilogue")
+                            GameScreen.GAME_OVER -> error("Campaign became unwinnable at step $steps")
+                            GameScreen.CHARACTER_CREATION -> error("Character unexpectedly missing")
                         }
-                        GameScreen.WAITING_FOR_PARTNER -> session.refresh()
-                        GameScreen.END -> break
-                        GameScreen.GAME_OVER -> error("Campaign became unwinnable at step $steps")
-                        GameScreen.CHARACTER_CREATION -> error("Character unexpectedly missing")
+                    } catch (failure: Throwable) {
+                        val failed = session.worldState()
+                        val arc = failed.activeArc
+                        val activeCombat = failed.activeCombat
+                        val legacyCombat = runCatching { StormglassPersistenceAdapter.decode(failed).combat }.getOrNull()
+                        error(
+                            "step=$steps screen=${view.screen} island=${failed.islandId} voyages=${failed.worldFlags["world.voyages"]} " +
+                                "arcPhase=${arc?.phase} arcActed=${arc?.actedThisPhase} activeCombat=${activeCombat?.status} " +
+                                "activeLocked=${activeCombat?.lockedActions?.keys} legacyCombat=${legacyCombat?.status} " +
+                                "cause=${failure.message}"
+                        )
                     }
                 }
+
                 val final = session.worldState()
-                assertTrue(steps < 700, "Campaign must not loop forever")
-                assertEquals("true", final.worldFlags["campaign.complete"])
-                assertTrue(!final.worldFlags["campaign.epilogue"].isNullOrBlank())
-                assertTrue((final.worldFlags.keys.count { it.startsWith("reward.arc.") }) >= 5)
+                assertTrue(steps < 1000, "Endless campaign must continue progressing")
+                assertTrue((final.worldFlags["world.voyages"]?.toIntOrNull() ?: 0) >= 8)
+                assertTrue(final.worldFlags["campaign.complete"] != "true")
+                assertTrue(visited.size >= 6)
             }
         }
+    }
+
+    /**
+     * Returns false when walking triggers a physical encounter. The caller must yield back to
+     * GamePresenter so the next loop iteration handles COMBAT before issuing more world actions.
+     */
+    private fun moveP1ToDock(session: GameSessionCoordinator): Boolean {
+        var guard = 0
+        while (ExplorationEngine.interactionAt(session.worldState(), "p1") != ExplorationInteraction.DOCK && guard++ < 40) {
+            if (session.worldState().activeCombat != null) return false
+            val world = session.worldState()
+            val map = ExplorationEngine.mapFor(world.campaignId, world.islandId)
+            val current = ExplorationEngine.position(world, "p1")
+            val dock = map.interactions.entries.first { it.value == ExplorationInteraction.DOCK }.key
+            val direction = when {
+                current.x < dock.x -> ExplorationDirection.EAST
+                current.x > dock.x -> ExplorationDirection.WEST
+                current.y < dock.y -> ExplorationDirection.SOUTH
+                else -> ExplorationDirection.NORTH
+            }
+            session.submitWorldAction("EXPLORE_MOVE", direction.name, 999)
+            if (session.worldState().activeCombat != null) return false
         }
+        assertTrue(guard < 40, "P1 must be able to walk to the physical dock")
+        return true
     }
 }

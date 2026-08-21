@@ -50,6 +50,7 @@ data class CharacterDraft(
     val defect: String,
     val attributes: Map<Attribute, Int>,
     val skills: Map<Skill, Int>,
+    val classPath: ClassPath? = null,
 )
 
 data class CharacterProfile(
@@ -74,6 +75,7 @@ data class CharacterProfile(
     val trainingMarks: Set<String> = emptySet(),
     val haki: HakiState = HakiState(),
     val devilFruit: DevilFruitState? = null,
+    val classMastery: ClassMasteryState? = null,
 ) {
     val maxHp: Int get() = 20 + (attributes.getValue(Attribute.CON) * 5)
     val maxEnergy: Int get() = 10 + (attributes.getValue(Attribute.CON) * 2) + (attributes.getValue(Attribute.VON) * 3)

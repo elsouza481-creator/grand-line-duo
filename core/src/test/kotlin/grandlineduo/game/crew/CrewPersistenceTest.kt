@@ -39,6 +39,41 @@ object CrewPersistenceTest {
             assertEquals(state, WorldStateCodec.decode(WorldStateCodec.encode(state)))
         }
 
+        test("current snapshot preserves crew affinity for all four human players") {
+            val crew = CrewState(
+                mapOf(
+                    "mira" to CrewMemberState(
+                        npcId = "mira",
+                        name = "Mira",
+                        role = CrewRole.NAVIGATOR,
+                        competence = 4,
+                        loyalty = 65,
+                        playerAffinity = mapOf(
+                            "p1" to 40,
+                            "p2" to -10,
+                            "p3" to 55,
+                            "p4" to -35,
+                        ),
+                    ),
+                ),
+            )
+            val state = legacyWorld().copy(
+                players = mapOf(
+                    "p1" to PlayerState("p1", "Kairo", 20, 20, 1000, 9, 10),
+                    "p2" to PlayerState("p2", "Mako", 20, 20, 0),
+                    "p3" to PlayerState("p3", "Nia", 20, 20, 0),
+                    "p4" to PlayerState("p4", "Rook", 20, 20, 0),
+                ),
+                crewState = crew,
+            )
+
+            val restored = WorldStateCodec.decode(WorldStateCodec.encode(state))
+
+            assertEquals(state, restored)
+            assertEquals(55, restored.crewState.members.getValue("mira").playerAffinity.getValue("p3"))
+            assertEquals(-35, restored.crewState.members.getValue("mira").playerAffinity.getValue("p4"))
+        }
+
         test("empty crew preserves exact legacy canonical hash") {
             assertEquals(
                 "ea73b0a8d4ca77206fce3925d537a8c8ae56cee64e5dc891ed1a41e469d82062",

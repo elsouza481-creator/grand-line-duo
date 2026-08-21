@@ -3,19 +3,26 @@ package grandlineduo.game.arc
 import java.util.Random
 
 object ArcEngine {
+    private val HUMAN_PLAYER_IDS = setOf("p1", "p2", "p3", "p4")
+
     fun start(context: ArcStartContext): ArcState {
         require(context.islandId.isNotBlank()) { "Island id is required" }
+        val participants = context.participantIds.toSortedSet()
+        require(participants.size in 2..4) { "Narrative arc requires two to four participants" }
+        require("p1" in participants) { "Narrative arc requires host player p1" }
+        require(participants.all { it in HUMAN_PLAYER_IDS }) { "Invalid narrative participant" }
         val archetype = chooseArchetype(context)
         return ArcState(
             arcId = "${context.islandId}:${archetype.name.lowercase()}:${context.seed}",
             islandId = context.islandId,
             seed = context.seed,
             archetype = archetype,
+            privateClues = participants.associateWith { emptySet<String>() },
         )
     }
 
     fun view(state: ArcState, playerId: String): ArcView {
-        requirePlayer(playerId)
+        requirePlayer(state, playerId)
         val choices = when (state.phase) {
             ArcPhase.ARRIVAL -> if (playerId == "p1") listOf(
                 ArcChoice("help_locals", "Ajudar moradores e ouvir o que aconteceu"),
@@ -29,7 +36,7 @@ object ArcEngine {
                 ArcChoice("force_information", "Forçar uma fonte hostil a falar"),
             ) else buildList {
                 if (state.privateClues[playerId].orEmpty().isNotEmpty()) {
-                    add(ArcChoice("reveal_intel", "Revelar a informação secreta ao parceiro"))
+                    add(ArcChoice("reveal_intel", "Revelar a informação secreta à tripulação"))
                     add(ArcChoice("keep_intel", "Guardar a informação por enquanto"))
                 }
                 add(ArcChoice("scout_target", "Observar o alvo antes da escalada"))
@@ -39,14 +46,14 @@ object ArcEngine {
                 ArcChoice("secure_escape", "Preparar uma rota segura para civis e aliados"),
             ) else listOf(
                 ArcChoice("sabotage_support", "Sabotar reforços e comunicações"),
-                ArcChoice("protect_civilians", "Proteger civis enquanto o parceiro avança"),
+                ArcChoice("protect_civilians", "Proteger civis enquanto a tripulação avança"),
             )
             ArcPhase.CLIMAX -> if (playerId == "p1") listOf(
                 ArcChoice("direct_assault", "Forçar o confronto decisivo"),
                 ArcChoice("draw_boss", "Atrair o líder para terreno desfavorável"),
             ) else listOf(
                 ArcChoice("exploit_weakness", "Explorar a fraqueza descoberta"),
-                ArcChoice("support_partner", "Criar a abertura para o golpe do parceiro"),
+                ArcChoice("support_partner", "Criar uma abertura para o ataque da tripulação"),
             )
             ArcPhase.AFTERMATH -> if (playerId == "p1") listOf(
                 ArcChoice("spare_enemy", "Poupar o derrotado e exigir respostas"),
@@ -66,7 +73,7 @@ object ArcEngine {
     }
 
     fun choose(state: ArcState, playerId: String, choiceId: String): ArcOutcome {
-        requirePlayer(playerId)
+        requirePlayer(state, playerId)
         if (state.phase == ArcPhase.COMPLETE) throw ArcChoiceException("Arc is complete")
         if (playerId in state.actedThisPhase) throw ArcChoiceException("$playerId already acted in ${state.phase}")
         val allowed = view(state, playerId).choices.map { it.id }.toSet()
@@ -80,12 +87,12 @@ object ArcEngine {
         when (choiceId) {
             "help_locals" -> {
                 shared = shared + "LOCALS_HELPED"
-                beats += sharedBeat("A população percebe que a tripulação não chegou apenas para saquear e começa a falar.")
+                beats += sharedBeat(state, "A população percebe que a tripulação não chegou apenas para saquear e começa a falar.")
             }
             "approach_openly" -> {
                 shared = shared + "AUTHORITY_CHALLENGED"
                 escalation += 1
-                beats += sharedBeat("A chegada aberta coloca a autoridade local em alerta e acelera o conflito.")
+                beats += sharedBeat(state, "A chegada aberta coloca a autoridade local em alerta e acelera o conflito.")
             }
             "shadow_authority" -> {
                 val clue = clueFor(state.archetype)
@@ -98,17 +105,17 @@ object ArcEngine {
             }
             "question_contacts" -> {
                 shared = shared + "CONTACTS_QUESTIONED"
-                beats += sharedBeat("Os relatos independentes apontam para o mesmo centro de poder na ilha.")
+                beats += sharedBeat(state, "Os relatos independentes apontam para o mesmo centro de poder na ilha.")
             }
             "force_information" -> {
                 shared = shared + "SOURCE_PRESSURED"
                 escalation += 1
-                beats += sharedBeat("A fonte cede, mas a pressão deixa claro para os inimigos que alguém está investigando.")
+                beats += sharedBeat(state, "A fonte cede, mas a pressão deixa claro para os inimigos que alguém está investigando.")
             }
             "reveal_intel" -> {
                 val clue = privateClues[playerId].orEmpty().sorted().first()
                 shared = shared + "INTEL_REVEALED:$clue"
-                beats += sharedBeat("$playerId revela ao parceiro a informação secreta obtida durante a investigação.")
+                beats += sharedBeat(state, "$playerId revela à tripulação a informação secreta obtida durante a investigação.")
             }
             "keep_intel" -> beats += privateBeat(playerId, "Você decide manter a informação em segredo por enquanto.")
             "scout_target" -> {
@@ -118,7 +125,7 @@ object ArcEngine {
             "challenge_enforcers" -> {
                 shared = shared + "ENFORCERS_DEFEATED"
                 escalation += 1
-                beats += sharedBeat("Os executores são enfrentados de frente; agora o líder do conflito sabe quem vocês são.")
+                beats += sharedBeat(state, "Os executores são enfrentados de frente; agora o líder do conflito sabe quem vocês são.")
             }
             "secure_escape" -> shared = shared + "ESCAPE_SECURED"
             "sabotage_support" -> {
@@ -161,7 +168,7 @@ object ArcEngine {
     }
 
     private fun advanceIfReady(state: ArcState): ArcState {
-        if (state.actedThisPhase != setOf("p1", "p2")) return state
+        if (state.actedThisPhase != state.participantIds) return state
         val next = when (state.phase) {
             ArcPhase.ARRIVAL -> ArcPhase.INVESTIGATION
             ArcPhase.INVESTIGATION -> ArcPhase.ESCALATION
@@ -203,10 +210,10 @@ object ArcEngine {
     private fun addPrivate(current: Map<String, Set<String>>, playerId: String, clue: String): Map<String, Set<String>> =
         current + (playerId to (current[playerId].orEmpty() + clue))
 
-    private fun sharedBeat(text: String) = ArcBeat(text, setOf("p1", "p2"))
+    private fun sharedBeat(state: ArcState, text: String) = ArcBeat(text, state.participantIds)
     private fun privateBeat(playerId: String, text: String) = ArcBeat(text, setOf(playerId))
 
-    private fun requirePlayer(playerId: String) {
-        if (playerId != "p1" && playerId != "p2") throw ArcChoiceException("Unknown player $playerId")
+    private fun requirePlayer(state: ArcState, playerId: String) {
+        if (playerId !in state.participantIds) throw ArcChoiceException("Unknown player $playerId")
     }
 }

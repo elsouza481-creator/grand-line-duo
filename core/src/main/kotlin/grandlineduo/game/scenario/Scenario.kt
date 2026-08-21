@@ -28,6 +28,7 @@ data class ScenarioState(
     val sharedFlags: Set<String> = emptySet(),
     val privateKnowledge: Map<String, Set<String>> = mapOf("p1" to emptySet(), "p2" to emptySet()),
     val actedThisStage: Set<String> = emptySet(),
+    val participantIds: Set<String> = setOf("p1", "p2"),
 )
 
 data class ScenarioOutcome(

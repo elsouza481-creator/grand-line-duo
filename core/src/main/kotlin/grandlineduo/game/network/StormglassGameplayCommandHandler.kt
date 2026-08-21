@@ -22,6 +22,9 @@ import grandlineduo.game.character.ProgressionEngine
 import grandlineduo.game.character.ProgressionResult
 import grandlineduo.game.character.Attribute
 import grandlineduo.game.character.Skill
+import grandlineduo.game.character.ClassMasteryEngine
+import grandlineduo.game.character.ClassPath
+import grandlineduo.game.character.ClassTrainingRules
 import grandlineduo.game.scenario.ScenarioStage
 import grandlineduo.game.crew.CrewEngine
 import grandlineduo.game.crew.CrewRecruitmentCatalog
@@ -37,11 +40,20 @@ import grandlineduo.game.powers.HakiMasteryResult
 import grandlineduo.game.powers.DevilFruitEngine
 import grandlineduo.game.powers.DevilFruitConsumeResult
 import grandlineduo.game.powers.DevilFruitMasteryResult
+import grandlineduo.game.pvp.TrainingDuelAction
+import grandlineduo.game.pvp.TrainingDuelEngine
 import grandlineduo.game.ship.ShipCoordinator
 import grandlineduo.game.ship.ShipEngine
 import grandlineduo.game.ship.ShipUpgrade
 import grandlineduo.game.ship.VoyageAction
 import grandlineduo.game.ship.VoyageEngine
+import grandlineduo.game.world.ExplorationCombatCoordinator
+import grandlineduo.game.world.ExplorationCombatEngine
+import grandlineduo.game.world.ExplorationDirection
+import grandlineduo.game.world.ExplorationEngine
+import grandlineduo.game.world.ExplorationInteraction
+import grandlineduo.game.world.ExplorationQuestEngine
+import grandlineduo.game.world.ExplorationLootEngine
 
 class StormglassGameplayCommandHandler(
     private val hostReplica: HostReplica,
@@ -52,6 +64,7 @@ class StormglassGameplayCommandHandler(
     private val scenarioEngine = StormglassCayScenario()
     private val arcCoordinator = ArcCoordinator(hostReplica, snapshotStore, durableStore)
     private val arcCombatCoordinator = ArcCombatCoordinator(hostReplica, snapshotStore, durableStore)
+    private val explorationCombatCoordinator = ExplorationCombatCoordinator(hostReplica, snapshotStore, durableStore)
 
     @Synchronized
     override fun handle(command: GameplayWireCommand, hostTimestamp: Long): CampaignEvent {
@@ -62,8 +75,15 @@ class StormglassGameplayCommandHandler(
             return existing
         }
 
-        require(command.actorId == "p1" || command.actorId == "p2") { "Unknown player ${command.actorId}" }
+        require(command.actorId in HUMAN_PLAYER_IDS) { "Unknown player ${command.actorId}" }
         val before = hostReplica.state
+        if (TrainingDuelEngine.state(before) != null) {
+            val isDuelCommand = command is GameplayWireCommand.WorldAction &&
+                command.actionType.uppercase().startsWith("DUEL_")
+            require(isDuelCommand) {
+                "Only duel actions are available while a training duel challenge or duel is active"
+            }
+        }
         if (command is GameplayWireCommand.CharacterCreate) {
             return applyCharacterCreate(before, command, fingerprint, hostTimestamp)
         }
@@ -89,12 +109,21 @@ class StormglassGameplayCommandHandler(
                 throw IllegalArgumentException("Unknown combat action ${command.actionType}")
             }
             require(type in BASIC_COMBAT_ACTIONS) { "Power techniques require a power action" }
-            return arcCombatCoordinator.submitAction(
-                command.commandId,
-                command.actorId,
-                type,
-                hostTimestamp,
-            )
+            return if (ExplorationCombatEngine.isActive(before)) {
+                explorationCombatCoordinator.submitAction(
+                    command.commandId,
+                    command.actorId,
+                    type,
+                    hostTimestamp,
+                )
+            } else {
+                arcCombatCoordinator.submitAction(
+                    command.commandId,
+                    command.actorId,
+                    type,
+                    hostTimestamp,
+                )
+            }
         }
         val restored = StormglassPersistenceAdapter.decode(before)
 
@@ -130,7 +159,15 @@ class StormglassGameplayCommandHandler(
         hostTimestamp: Long,
     ): CampaignEvent {
         val currentPlayer = before.players[command.actorId]
-            ?: throw IllegalArgumentException("Unknown player ${command.actorId}")
+            ?: grandlineduo.core.model.PlayerState(
+                command.actorId,
+                "Jogador ${command.actorId.removePrefix("p")}",
+                20,
+                20,
+                0,
+                10,
+                10,
+            )
         require(currentPlayer.profile == null) { "Character already created for ${command.actorId}" }
         val creation = CharacterCreation.create(command.draft)
         val createdProfile = when (creation) {
@@ -210,7 +247,49 @@ class StormglassGameplayCommandHandler(
             "World management is unavailable during combat"
         }
         require(before.activeVoyage == null) { "World management is unavailable during a voyage incident" }
-        val nextWorld = when (command.actionType.uppercase()) {
+        val actionType = command.actionType.uppercase()
+        requiredInteraction(actionType)?.let { expected ->
+            requirePhysicalInteraction(before, command.actorId, expected)
+        }
+        val nextWorld = when (actionType) {
+            "EXPLORE_MOVE" -> {
+                require(!TrainingDuelEngine.blocksWorldMovement(before)) {
+                    "Movement is locked while a training duel challenge or duel is active"
+                }
+                val direction = try {
+                    ExplorationDirection.valueOf(command.target.uppercase())
+                } catch (_: IllegalArgumentException) {
+                    throw IllegalArgumentException("Unknown exploration direction ${command.target}")
+                }
+                val moved = ExplorationEngine.move(before, command.actorId, direction)
+                ExplorationCombatEngine.startIfEncountered(moved, command.actorId)
+            }
+            "DUEL_CHALLENGE" -> if (command.target.isBlank()) {
+                TrainingDuelEngine.challenge(before, command.actorId)
+            } else {
+                TrainingDuelEngine.challenge(before, command.actorId, command.target)
+            }
+            "DUEL_FIELD_CHALLENGE" -> TrainingDuelEngine.challengeAdjacent(
+                before,
+                command.actorId,
+                command.target,
+            )
+            "DUEL_ACCEPT" -> TrainingDuelEngine.accept(before, command.actorId)
+            "DUEL_DECLINE" -> TrainingDuelEngine.decline(before, command.actorId)
+            "DUEL_CANCEL" -> TrainingDuelEngine.cancel(before, command.actorId)
+            "DUEL_ACTION" -> {
+                val action = try {
+                    TrainingDuelAction.valueOf(command.target.uppercase())
+                } catch (_: IllegalArgumentException) {
+                    throw IllegalArgumentException("Unknown training duel action ${command.target}")
+                }
+                TrainingDuelEngine.submitAction(before, command.actorId, action)
+            }
+            "DUEL_FORFEIT" -> TrainingDuelEngine.forfeit(before, command.actorId)
+            "QUEST_ACCEPT" -> ExplorationQuestEngine.accept(before, command.actorId, command.target)
+            "QUEST_PROGRESS" -> ExplorationQuestEngine.progress(before, command.actorId, command.target)
+            "QUEST_TURN_IN" -> ExplorationQuestEngine.turnIn(before, command.actorId, command.target)
+            "LOOT_COLLECT" -> ExplorationLootEngine.collect(before, command.actorId, command.target)
             "SHOP_BUY" -> ShopEngine.buy(before, command.actorId, command.target, command.amount)
             "SHOP_SELL" -> ShopEngine.sell(before, command.actorId, command.target, command.amount)
             "SHIP_REPAIR" -> {
@@ -248,7 +327,7 @@ class StormglassGameplayCommandHandler(
                 require(parts.size == 2) { "Crew role target must contain npc id and role" }
                 val member = before.crewState.members[parts[0]] ?: throw IllegalArgumentException("Unknown crew member")
                 val role = CrewRole.valueOf(parts[1].uppercase())
-                before.copy(crewState = before.crewState.copy(members = before.crewState.members + (member.npcId to CrewEngine.assignRole(member, role))))
+                before.copy(crewState = before.crewState.copy(members = before.crewState.copy(members = before.crewState.members + (member.npcId to CrewEngine.assignRole(member, role))).members))
             }
             "TRAIN_ATTRIBUTE" -> updateProfile(before, command.actorId) {
                 ProgressionEngine.markAttributeTraining(it, Attribute.valueOf(command.target.uppercase()))
@@ -268,6 +347,16 @@ class StormglassGameplayCommandHandler(
                     is ProgressionResult.Rejected -> throw IllegalArgumentException("Skill progression rejected: ${result.error}")
                 }
             }
+            "CHOOSE_CLASS" -> updateProfile(before, command.actorId) { profile ->
+                require(profile.classMastery == null) { "Primary class already chosen" }
+                val path = ClassPath.valueOf(command.target.uppercase())
+                profile.copy(classMastery = ClassMasteryEngine.start(path))
+            }
+            "TRAIN_CLASS" -> ClassTrainingRules.train(
+                before,
+                command.actorId,
+                ClassPath.valueOf(command.target.uppercase()),
+            )
             "HAKI_AWAKEN" -> updateProfile(before, command.actorId) { profile ->
                 val type = HakiType.valueOf(command.target.uppercase())
                 val chapter = before.worldFlags["campaign.chapter"]?.toIntOrNull() ?: 0
@@ -325,12 +414,33 @@ class StormglassGameplayCommandHandler(
                 actorId = command.actorId,
                 nextState = nextWorld,
                 sourceFingerprint = fingerprint,
-                metadata = mapOf("meta.worldAction" to command.actionType.uppercase(), "meta.worldTarget" to command.target),
+                metadata = mapOf("meta.worldAction" to actionType, "meta.worldTarget" to command.target),
             ),
             hostTimestamp,
         )
         persist(result.event)
         return result.event
+    }
+
+    private fun requiredInteraction(actionType: String): ExplorationInteraction? = when (actionType) {
+        "SHOP_BUY", "SHOP_SELL" -> ExplorationInteraction.MARKET
+        "SHIP_REPAIR", "SHIP_RESUPPLY", "SHIP_UPGRADE" -> ExplorationInteraction.SHIP
+        "CREW_RECRUIT", "CREW_ROLE" -> ExplorationInteraction.CREW
+        "TRAIN_ATTRIBUTE", "UPGRADE_ATTRIBUTE", "TRAIN_SKILL", "UPGRADE_SKILL",
+        "CHOOSE_CLASS", "TRAIN_CLASS", "HAKI_AWAKEN", "HAKI_TRAIN",
+        "FRUIT_EAT", "FRUIT_IDENTIFY", "FRUIT_TRAIN" -> ExplorationInteraction.TRAINING
+        else -> null
+    }
+
+    private fun requirePhysicalInteraction(
+        world: grandlineduo.core.model.WorldState,
+        playerId: String,
+        expected: ExplorationInteraction,
+    ) {
+        val actual = ExplorationEngine.interactionAt(world, playerId)
+        require(actual == expected) {
+            "${expected.name.lowercase().replace('_', ' ')} interaction requires the matching physical tile"
+        }
     }
 
     private fun updateProfile(
@@ -359,9 +469,16 @@ class StormglassGameplayCommandHandler(
         )
 
         val nextWorld = if (poweredWorld.activeCombat != null) {
-            val arc = poweredWorld.activeArc ?: throw IllegalArgumentException("Active boss combat has no arc")
+            val explorationCombat = ExplorationCombatEngine.isActive(poweredWorld)
+            val arc = if (explorationCombat) null else poweredWorld.activeArc
+                ?: throw IllegalArgumentException("Active boss combat has no arc")
             val current = poweredWorld.activeCombat
-            val engine = CombatEngine(ArcBossFactory.combatSeed(arc), CombatModifierResolver.forWorld(poweredWorld))
+            val combatSeed = if (explorationCombat) {
+                ExplorationCombatEngine.combatSeed(poweredWorld)
+            } else {
+                ArcBossFactory.combatSeed(requireNotNull(arc))
+            }
+            val engine = CombatEngine(combatSeed, CombatModifierResolver.forWorld(poweredWorld))
             val locked = try {
                 engine.lockAction(current, CombatAction(command.actorId, prepared.combatAction))
             } catch (e: CombatRuleException) {
@@ -381,16 +498,30 @@ class StormglassGameplayCommandHandler(
                     resolved.state.players[id]?.let { fighter -> player.copy(hp = fighter.hp, maxHp = fighter.maxHp) } ?: player
                 }
                 when (resolved.state.status) {
-                    CombatStatus.VICTORY -> poweredWorld.copy(
-                        players = players,
-                        activeCombat = null,
-                        worldFlags = poweredWorld.worldFlags + ("ARC_BOSS_DEFEATED:${arc.arcId}" to "true"),
-                    )
-                    CombatStatus.DEFEAT -> poweredWorld.copy(
-                        players = players,
-                        activeCombat = resolved.state,
-                        worldFlags = poweredWorld.worldFlags + ("ARC_PARTY_DEFEATED:${arc.arcId}" to "true"),
-                    )
+                    CombatStatus.VICTORY -> {
+                        if (explorationCombat) {
+                            ExplorationCombatEngine.completeVictory(
+                                poweredWorld.copy(players = players, activeCombat = resolved.state)
+                            )
+                        } else {
+                            poweredWorld.copy(
+                                players = players,
+                                activeCombat = null,
+                                worldFlags = poweredWorld.worldFlags + ("ARC_BOSS_DEFEATED:${requireNotNull(arc).arcId}" to "true"),
+                            )
+                        }
+                    }
+                    CombatStatus.DEFEAT -> {
+                        if (explorationCombat) {
+                            poweredWorld.copy(players = players, activeCombat = resolved.state)
+                        } else {
+                            poweredWorld.copy(
+                                players = players,
+                                activeCombat = resolved.state,
+                                worldFlags = poweredWorld.worldFlags + ("ARC_PARTY_DEFEATED:${requireNotNull(arc).arcId}" to "true"),
+                            )
+                        }
+                    }
                     CombatStatus.ACTIVE -> poweredWorld.copy(players = players, activeCombat = resolved.state)
                 }
             }
@@ -451,7 +582,8 @@ class StormglassGameplayCommandHandler(
             throw IllegalArgumentException("Unknown voyage action ${command.actionType}")
         }
         val locked = VoyageEngine.lockAction(active, command.actorId, action)
-        val resolution = VoyageEngine.resolveIfReady(ship, locked, before.crewState)
+        val profiles = before.players.mapValues { (_, player) -> player.profile }
+        val resolution = VoyageEngine.resolveIfReady(ship, locked, before.crewState, profiles)
         val nextWorld = if (resolution == null) {
             before.copy(activeVoyage = locked)
         } else {
@@ -560,7 +692,8 @@ class StormglassGameplayCommandHandler(
         val world = hostReplica.state
         return CombatState(
             round = 1,
-            players = world.players.mapValues { (id, player) ->
+            players = listOf("p1", "p2").associateWith { id ->
+                val player = world.players[id] ?: throw IllegalArgumentException("Missing legacy combat player $id")
                 Combatant(id, player.name, player.hp, player.maxHp)
             },
             enemy = EnemyCombatant(
@@ -575,6 +708,7 @@ class StormglassGameplayCommandHandler(
     }
 
     companion object {
+        private val HUMAN_PLAYER_IDS = setOf("p1", "p2", "p3", "p4")
         private val BASIC_COMBAT_ACTIONS = setOf(
             CombatActionType.ATTACK,
             CombatActionType.DEFEND,
@@ -583,5 +717,4 @@ class StormglassGameplayCommandHandler(
             CombatActionType.FINISHER,
         )
     }
-
 }

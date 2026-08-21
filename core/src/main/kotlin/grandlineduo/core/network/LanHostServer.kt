@@ -15,27 +15,42 @@ class LanSessionException(message: String) : RuntimeException(message)
 class LanHostServer(
     private val hostReplica: HostReplica,
     private val port: Int = 0,
-    private val allowedClientId: String = "p2",
+    private val allowedClientId: String? = null,
     private val bindAddress: String = "0.0.0.0",
     private val gameplayCommandHandler: GameplayCommandHandler? = null,
+    private val handshakeTimeoutMillis: Int = 5_000,
+    private val allowedClientIds: Set<String> = DEFAULT_REMOTE_CLIENT_IDS,
 ) : Closeable {
     private val running = AtomicBoolean(false)
     private val sessionLock = Any()
     private var serverSocket: ServerSocket? = null
     private var acceptThread: Thread? = null
-    private var activeClient: Socket? = null
+    private val activeClients = linkedMapOf<String, Socket>()
 
     @Volatile
     var boundPort: Int = -1
         private set
 
-    val hasActiveClient: Boolean
+    private val effectiveAllowedClientIds: Set<String>
+        get() = allowedClientId?.let(::setOf) ?: allowedClientIds
+
+    val activeClientIds: Set<String>
         get() = synchronized(sessionLock) {
-            activeClient?.let { it.isConnected && !it.isClosed } == true
+            activeClients.entries
+                .filter { (_, socket) -> socket.isConnected && !socket.isClosed }
+                .mapTo(linkedSetOf()) { it.key }
         }
+
+    val activeClientCount: Int
+        get() = activeClientIds.size
+
+    val hasActiveClient: Boolean
+        get() = activeClientCount > 0
 
     fun start() {
         check(running.compareAndSet(false, true)) { "LAN host already started" }
+        require(handshakeTimeoutMillis > 0) { "Handshake timeout must be positive" }
+        require(effectiveAllowedClientIds.isNotEmpty()) { "At least one remote client must be allowed" }
         val server = ServerSocket()
         server.reuseAddress = true
         server.bind(InetSocketAddress(InetAddress.getByName(bindAddress), port))
@@ -60,7 +75,8 @@ class LanHostServer(
 
     private fun handleSession(socket: Socket) {
         socket.tcpNoDelay = true
-        socket.soTimeout = 5_000
+        socket.soTimeout = handshakeTimeoutMillis
+        var authenticatedPeerId: String? = null
         try {
             val first = WireCodec.read(socket.getInputStream())
             val hello = (first as? WireMessage.Hello)?.hello
@@ -68,23 +84,47 @@ class LanHostServer(
                     WireCodec.write(socket.getOutputStream(), WireMessage.Error("HELLO_REQUIRED"))
                     return
                 }
-            if (hello.peerId != allowedClientId) {
-                WireCodec.write(socket.getOutputStream(), WireMessage.Error("PEER_NOT_ALLOWED"))
+            val automaticSlot = hello.peerId == AUTO_PEER_ID
+            val peerId = synchronized(sessionLock) {
+                val selected = if (automaticSlot) {
+                    effectiveAllowedClientIds.sorted().firstOrNull { candidate ->
+                        activeClients[candidate]?.let { it.isConnected && !it.isClosed } != true
+                    }
+                } else {
+                    hello.peerId.takeIf { it in effectiveAllowedClientIds }
+                }
+                if (selected != null) {
+                    activeClients[selected]
+                        ?.takeIf { it !== socket && !it.isClosed }
+                        ?.close()
+                    activeClients[selected] = socket
+                }
+                selected
+            }
+            if (peerId == null) {
+                val error = if (automaticSlot) "ROOM_FULL" else "PEER_NOT_ALLOWED"
+                WireCodec.write(socket.getOutputStream(), WireMessage.Error(error))
                 return
             }
-
-            synchronized(sessionLock) {
-                activeClient?.takeIf { it !== socket && !it.isClosed }?.close()
-                activeClient = socket
-            }
+            authenticatedPeerId = peerId
 
             val plan = synchronized(hostReplica) { hostReplica.planReconnect(hello) }
-            WireCodec.write(socket.getOutputStream(), WireMessage.Sync(plan))
+            val handshakeResponse = if (automaticSlot) {
+                WireMessage.Welcome(peerId, plan)
+            } else {
+                WireMessage.Sync(plan)
+            }
+            WireCodec.write(socket.getOutputStream(), handshakeResponse)
+
+            // The timeout protects only unauthenticated handshakes. An authenticated LAN session
+            // may legitimately remain idle while players explore menus, read dialogue or plan moves.
+            // Request/response failures are still bounded by the client's own socket timeout.
+            socket.soTimeout = 0
 
             while (running.get() && !socket.isClosed) {
                 when (val message = WireCodec.read(socket.getInputStream())) {
                     is WireMessage.Command -> {
-                        if (message.command.actorId != allowedClientId) {
+                        if (message.command.actorId != peerId) {
                             WireCodec.write(socket.getOutputStream(), WireMessage.Error("ACTOR_NOT_ALLOWED"))
                             continue
                         }
@@ -94,7 +134,7 @@ class LanHostServer(
                         WireCodec.write(socket.getOutputStream(), WireMessage.Event(result.event))
                     }
                     is WireMessage.GameplayCommand -> {
-                        if (message.command.actorId != allowedClientId) {
+                        if (message.command.actorId != peerId) {
                             WireCodec.write(socket.getOutputStream(), WireMessage.Error("ACTOR_NOT_ALLOWED"))
                             continue
                         }
@@ -123,7 +163,7 @@ class LanHostServer(
                         WireCodec.write(socket.getOutputStream(), WireMessage.Event(event))
                     }
                     is WireMessage.Refresh -> {
-                        if (message.hello.peerId != allowedClientId) {
+                        if (message.hello.peerId != peerId) {
                             WireCodec.write(socket.getOutputStream(), WireMessage.Error("PEER_NOT_ALLOWED"))
                             continue
                         }
@@ -143,7 +183,9 @@ class LanHostServer(
             runCatching { WireCodec.write(socket.getOutputStream(), WireMessage.Error(e.message ?: "WIRE_ERROR")) }
         } finally {
             synchronized(sessionLock) {
-                if (activeClient === socket) activeClient = null
+                authenticatedPeerId?.let { peerId ->
+                    if (activeClients[peerId] === socket) activeClients.remove(peerId)
+                }
             }
             runCatching { socket.close() }
         }
@@ -152,10 +194,14 @@ class LanHostServer(
     override fun close() {
         if (!running.getAndSet(false)) return
         synchronized(sessionLock) {
-            runCatching { activeClient?.close() }
-            activeClient = null
+            activeClients.values.toList().forEach { socket -> runCatching { socket.close() } }
+            activeClients.clear()
         }
         runCatching { serverSocket?.close() }
         acceptThread?.join(1_000)
+    }
+
+    companion object {
+        val DEFAULT_REMOTE_CLIENT_IDS: Set<String> = setOf("p2", "p3", "p4")
     }
 }

@@ -20,7 +20,6 @@ class ArcCombatCoordinator(
         actionType: CombatActionType,
         hostTimestamp: Long,
     ): CampaignEvent {
-        require(playerId == "p1" || playerId == "p2") { "Unknown player $playerId" }
         val fingerprint = "arc-combat|$playerId|${actionType.name}"
         hostReplica.events.firstOrNull { it.commandId == commandId }?.let { existing ->
             require(existing.commandFingerprint == fingerprint) { "Command ID collision" }
@@ -30,6 +29,7 @@ class ArcCombatCoordinator(
 
         val arc = hostReplica.state.activeArc ?: throw IllegalArgumentException("No active arc")
         val current = hostReplica.state.activeCombat ?: throw IllegalArgumentException("No active arc combat")
+        require(playerId in current.players) { "Unknown combat player $playerId" }
         val engine = CombatEngine(ArcBossFactory.combatSeed(arc), CombatModifierResolver.forWorld(hostReplica.state))
         val locked = try {
             engine.lockAction(current, CombatAction(playerId, actionType))

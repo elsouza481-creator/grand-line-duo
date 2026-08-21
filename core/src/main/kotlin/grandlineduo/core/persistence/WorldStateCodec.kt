@@ -7,6 +7,8 @@ import grandlineduo.game.arc.ArcArchetype
 import grandlineduo.game.arc.ArcPhase
 import grandlineduo.game.arc.ArcState
 import grandlineduo.game.character.CharacterProfile
+import grandlineduo.game.character.ClassMasteryState
+import grandlineduo.game.character.ClassPath
 import grandlineduo.game.character.Skill
 import grandlineduo.game.crew.CrewMemberState
 import grandlineduo.game.crew.CrewRole
@@ -42,7 +44,7 @@ import java.io.DataInputStream
 import java.io.DataOutputStream
 
 object WorldStateCodec {
-    private const val CURRENT_VERSION = 9
+    private const val CURRENT_VERSION = 11
 
     fun encode(state: WorldState): ByteArray {
         val out = ByteArrayOutputStream()
@@ -102,13 +104,13 @@ object WorldStateCodec {
             } else 0
             val socialState = if (version >= 5) readSocialState(data) else SocialState()
             val shipState = if (version >= 6 && data.readBoolean()) readShipState(data) else null
-            val activeVoyage = if (version >= 6 && data.readBoolean()) readVoyage(data) else null
+            val activeVoyage = if (version >= 6 && data.readBoolean()) readVoyage(data, version) else null
             val crewState = if (version >= 7) readCrewState(data) else CrewState()
             val activeArc = if (version >= 8 && data.readBoolean()) readArcState(data) else null
             val activeCombat = if (version >= 9 && data.readBoolean()) readCombatState(data) else null
 
             val playerCount = data.readInt()
-            require(playerCount in 0..2) { "Invalid player count" }
+            require(playerCount in 0..4) { "Invalid player count" }
             val players = linkedMapOf<String, PlayerState>()
             repeat(playerCount) {
                 val key = data.readUTF()
@@ -307,11 +309,11 @@ object WorldStateCodec {
             val injurySeverity = data.readInt()
             val status = CrewStatus.valueOf(data.readUTF())
             val affinityCount = data.readInt()
-            require(affinityCount in 0..2) { "Invalid crew affinity count" }
+            require(affinityCount in 0..4) { "Invalid crew affinity count" }
             val affinity = linkedMapOf<String, Int>()
             repeat(affinityCount) {
                 val playerId = data.readUTF()
-                require(playerId == "p1" || playerId == "p2") { "Invalid crew affinity player" }
+                require(playerId in HUMAN_PLAYER_IDS) { "Invalid crew affinity player" }
                 require(playerId !in affinity) { "Duplicate crew affinity player" }
                 affinity[playerId] = data.readInt()
             }
@@ -366,11 +368,11 @@ object WorldStateCodec {
         repeat(sharedCount) { shared += data.readUTF() }
 
         val privatePlayerCount = data.readInt()
-        require(privatePlayerCount in 0..2) { "Invalid arc private player count" }
+        require(privatePlayerCount in 0..4) { "Invalid arc private player count" }
         val privateClues = linkedMapOf<String, Set<String>>()
         repeat(privatePlayerCount) {
             val playerId = data.readUTF()
-            require(playerId == "p1" || playerId == "p2") { "Invalid arc private player" }
+            require(playerId in HUMAN_PLAYER_IDS) { "Invalid arc private player" }
             require(playerId !in privateClues) { "Duplicate arc private player" }
             val clueCount = data.readInt()
             require(clueCount in 0..10_000) { "Invalid arc private clue count" }
@@ -380,11 +382,12 @@ object WorldStateCodec {
         }
 
         val actedCount = data.readInt()
-        require(actedCount in 0..2) { "Invalid arc acted count" }
+        require(actedCount in 0..4) { "Invalid arc acted count" }
         val acted = linkedSetOf<String>()
         repeat(actedCount) {
             val playerId = data.readUTF()
-            require(playerId == "p1" || playerId == "p2") { "Invalid arc acted player" }
+            require(playerId in HUMAN_PLAYER_IDS) { "Invalid arc acted player" }
+            require(playerId in privateClues) { "Arc action player is not a participant" }
             require(acted.add(playerId)) { "Duplicate arc acted player" }
         }
         return ArcState(
@@ -394,10 +397,7 @@ object WorldStateCodec {
             archetype = archetype,
             phase = phase,
             sharedFlags = shared,
-            privateClues = mapOf(
-                "p1" to privateClues["p1"].orEmpty(),
-                "p2" to privateClues["p2"].orEmpty(),
-            ),
+            privateClues = privateClues,
             actedThisPhase = acted,
             escalation = escalation,
         )
@@ -438,7 +438,7 @@ object WorldStateCodec {
         val status = CombatStatus.valueOf(data.readUTF())
 
         val playerCount = data.readInt()
-        require(playerCount in 0..2) { "Invalid combat player count" }
+        require(playerCount in 0..4) { "Invalid combat player count" }
         val players = linkedMapOf<String, Combatant>()
         repeat(playerCount) {
             val key = data.readUTF()
@@ -468,7 +468,7 @@ object WorldStateCodec {
         )
 
         val actionCount = data.readInt()
-        require(actionCount in 0..2) { "Invalid combat action count" }
+        require(actionCount in 0..4) { "Invalid combat action count" }
         val actions = linkedMapOf<String, CombatAction>()
         repeat(actionCount) {
             val key = data.readUTF()
@@ -492,6 +492,9 @@ object WorldStateCodec {
         data.writeUTF(voyage.incident.type.name)
         data.writeInt(voyage.incident.severity)
         data.writeLong(voyage.incident.seed)
+        val participants = voyage.participants.sorted()
+        data.writeInt(participants.size)
+        participants.forEach(data::writeUTF)
         val actions = voyage.actions.toSortedMap()
         data.writeInt(actions.size)
         actions.forEach { (playerId, action) ->
@@ -500,22 +503,40 @@ object WorldStateCodec {
         }
     }
 
-    private fun readVoyage(data: DataInputStream): VoyageEncounter {
+    private fun readVoyage(data: DataInputStream, version: Int): VoyageEncounter {
         val incident = VoyageIncident(
             type = VoyageIncidentType.valueOf(data.readUTF()),
             severity = data.readInt(),
             seed = data.readLong(),
         )
+        val participants = if (version >= 11) {
+            val participantCount = data.readInt()
+            require(participantCount in 2..4) { "Invalid voyage participant count" }
+            val decoded = linkedSetOf<String>()
+            repeat(participantCount) {
+                val playerId = data.readUTF()
+                require(playerId in HUMAN_PLAYER_IDS) { "Invalid voyage participant" }
+                require(decoded.add(playerId)) { "Duplicate voyage participant" }
+            }
+            require("p1" in decoded) { "Authoritative P1 must participate in a voyage" }
+            decoded
+        } else {
+            linkedSetOf("p1", "p2")
+        }
         val actionCount = data.readInt()
-        require(actionCount in 0..2) { "Invalid voyage action count" }
+        require(actionCount in 0..participants.size) { "Invalid voyage action count" }
         val actions = linkedMapOf<String, VoyageAction>()
         repeat(actionCount) {
             val playerId = data.readUTF()
-            require(playerId == "p1" || playerId == "p2") { "Invalid voyage player" }
+            require(playerId in participants) { "Invalid voyage player" }
             require(playerId !in actions) { "Duplicate voyage action" }
             actions[playerId] = VoyageAction.valueOf(data.readUTF())
         }
-        return VoyageEncounter(incident, actions)
+        return VoyageEncounter(
+            incident = incident,
+            actions = actions,
+            participants = participants,
+        )
     }
 
     private fun writeProfile(data: DataOutputStream, profile: CharacterProfile) {
@@ -573,6 +594,12 @@ object WorldStateCodec {
             data.writeInt(fruit.mastery)
             data.writeInt(fruit.useCount)
         }
+
+        val mastery = profile.classMastery
+        data.writeBoolean(mastery != null)
+        if (mastery != null) {
+            writeClassMastery(data, mastery)
+        }
     }
 
     private fun readProfile(data: DataInputStream, version: Int): CharacterProfile {
@@ -619,6 +646,7 @@ object WorldStateCodec {
 
         val haki = if (version >= 3) readHaki(data) else HakiState()
         val devilFruit = if (version >= 3 && data.readBoolean()) readFruit(data) else null
+        val classMastery = if (version >= 10 && data.readBoolean()) readClassMastery(data) else null
 
         return CharacterProfile(
             name = name,
@@ -642,6 +670,57 @@ object WorldStateCodec {
             trainingMarks = marks,
             haki = haki,
             devilFruit = devilFruit,
+            classMastery = classMastery,
+        )
+    }
+
+    private fun writeClassMastery(data: DataOutputStream, mastery: ClassMasteryState) {
+        data.writeUTF(mastery.primaryClass.name)
+
+        val levels = mastery.levels.entries.sortedBy { it.key.ordinal }
+        data.writeInt(levels.size)
+        levels.forEach { (path, level) ->
+            data.writeUTF(path.name)
+            data.writeInt(level)
+        }
+
+        val experience = mastery.experience.entries.sortedBy { it.key.ordinal }
+        data.writeInt(experience.size)
+        experience.forEach { (path, amount) ->
+            data.writeUTF(path.name)
+            data.writeLong(amount)
+        }
+    }
+
+    private fun readClassMastery(data: DataInputStream): ClassMasteryState {
+        val primaryClass = ClassPath.valueOf(data.readUTF())
+
+        val levelCount = data.readInt()
+        require(levelCount in 0..ClassPath.entries.size) { "Invalid class mastery level count" }
+        val levels = linkedMapOf<ClassPath, Int>()
+        repeat(levelCount) {
+            val path = ClassPath.valueOf(data.readUTF())
+            require(path !in levels) { "Duplicate class mastery level $path" }
+            val level = data.readInt()
+            require(level >= 0) { "Invalid class mastery level" }
+            levels[path] = level
+        }
+
+        val experienceCount = data.readInt()
+        require(experienceCount in 0..ClassPath.entries.size) { "Invalid class mastery experience count" }
+        val experience = linkedMapOf<ClassPath, Long>()
+        repeat(experienceCount) {
+            val path = ClassPath.valueOf(data.readUTF())
+            require(path !in experience) { "Duplicate class mastery experience $path" }
+            val amount = data.readLong()
+            require(amount >= 0L) { "Invalid class mastery experience" }
+            experience[path] = amount
+        }
+
+        return ClassMasteryState(
+            primaryClass = primaryClass,
+            levels = levels,
+            experience = experience,
         )
     }
 
@@ -675,4 +754,6 @@ object WorldStateCodec {
             useCount = useCount,
         )
     }
+
+    private val HUMAN_PLAYER_IDS = setOf("p1", "p2", "p3", "p4")
 }

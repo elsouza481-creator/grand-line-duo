@@ -14,6 +14,7 @@ import java.security.MessageDigest
 
 private const val DISCOVERY_MAGIC = 0x474C4431 // GLD1
 private const val MAX_DISCOVERY_PACKET = 2048
+const val MAX_LAN_PLAYERS = 4
 
 class LanDiscoveryException(message: String) : RuntimeException(message)
 
@@ -23,12 +24,16 @@ data class LanDiscoveryAdvertisement(
     val campaignId: String,
     val hostName: String,
     val tcpPort: Int,
+    val currentPlayers: Int = 1,
+    val maxPlayers: Int = MAX_LAN_PLAYERS,
 ) {
     init {
         require(sessionId.isNotBlank() && sessionId.length <= 64) { "Invalid session id" }
         require(campaignId.isNotBlank() && campaignId.length <= 128) { "Invalid campaign id" }
         require(hostName.isNotBlank() && hostName.length <= 80) { "Invalid host name" }
         require(tcpPort in 1..65535) { "Invalid TCP port" }
+        require(maxPlayers == MAX_LAN_PLAYERS) { "LAN room capacity must be $MAX_LAN_PLAYERS" }
+        require(currentPlayers in 1..maxPlayers) { "Invalid current player count" }
     }
 }
 
@@ -46,6 +51,8 @@ object LanDiscoveryCodec {
                 data.writeUTF(advertisement.campaignId)
                 data.writeUTF(advertisement.hostName)
                 data.writeInt(advertisement.tcpPort)
+                data.writeInt(advertisement.currentPlayers)
+                data.writeInt(advertisement.maxPlayers)
             }
         }.toByteArray()
         if (payload.size > MAX_DISCOVERY_PACKET - 40) throw LanDiscoveryException("Discovery payload too large")
@@ -83,6 +90,8 @@ object LanDiscoveryCodec {
                     campaignId = body.readUTF(),
                     hostName = body.readUTF(),
                     tcpPort = body.readInt(),
+                    currentPlayers = body.readInt(),
+                    maxPlayers = body.readInt(),
                 )
                 if (body.available() != 0) throw LanDiscoveryException("Trailing discovery payload bytes")
                 ad
@@ -90,6 +99,8 @@ object LanDiscoveryCodec {
         }
     } catch (e: LanDiscoveryException) {
         throw e
+    } catch (e: IllegalArgumentException) {
+        throw LanDiscoveryException(e.message ?: "Invalid discovery advertisement")
     } catch (e: Exception) {
         throw LanDiscoveryException("Invalid discovery packet: ${e.message}")
     }
