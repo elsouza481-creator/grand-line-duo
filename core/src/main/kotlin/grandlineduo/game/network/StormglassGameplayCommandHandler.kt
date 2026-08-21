@@ -264,7 +264,11 @@ class StormglassGameplayCommandHandler(
                 val moved = ExplorationEngine.move(before, command.actorId, direction)
                 ExplorationCombatEngine.startIfEncountered(moved, command.actorId)
             }
-            "DUEL_CHALLENGE" -> TrainingDuelEngine.challenge(before, command.actorId)
+            "DUEL_CHALLENGE" -> if (command.target.isBlank()) {
+                TrainingDuelEngine.challenge(before, command.actorId)
+            } else {
+                TrainingDuelEngine.challenge(before, command.actorId, command.target)
+            }
             "DUEL_ACCEPT" -> TrainingDuelEngine.accept(before, command.actorId)
             "DUEL_DECLINE" -> TrainingDuelEngine.decline(before, command.actorId)
             "DUEL_CANCEL" -> TrainingDuelEngine.cancel(before, command.actorId)
