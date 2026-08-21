@@ -174,6 +174,12 @@ object WireCodec {
                                 data.writeUTF(command.questId)
                                 data.writeInt(command.amount)
                             }
+                            is GameplayWireCommand.DuelAction -> {
+                                data.writeByte(10)
+                                data.writeUTF(command.commandId)
+                                data.writeUTF(command.actorId)
+                                data.writeUTF(command.actionType)
+                            }
                         }
                     }
                     is WireMessage.Refresh -> {
@@ -269,6 +275,11 @@ object WireCodec {
                             actionType = data.readUTF(),
                             questId = data.readUTF(),
                             amount = data.readInt(),
+                        )
+                        10 -> GameplayWireCommand.DuelAction(
+                            commandId = data.readUTF(),
+                            actorId = data.readUTF(),
+                            actionType = data.readUTF(),
                         )
                         else -> throw WireProtocolException("Unknown gameplay command type $subtype")
                     }
