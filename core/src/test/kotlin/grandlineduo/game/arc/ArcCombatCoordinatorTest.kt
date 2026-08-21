@@ -44,6 +44,24 @@ object ArcCombatCoordinatorTest {
             assertEquals(1, host.state.activeCombat!!.lockedActions.size)
         }
 
+        test("four player arc combat waits for every living participant before resolving") {
+            val host = HostReplica(fourPlayerWorldWithCombat("boss-four-player"))
+            val combat = ArcCombatCoordinator(host)
+
+            combat.submitAction("four-p1", "p1", CombatActionType.DEFEND, 3_100)
+            combat.submitAction("four-p2", "p2", CombatActionType.DEFEND, 3_101)
+            combat.submitAction("four-p3", "p3", CombatActionType.ATTACK, 3_102)
+
+            assertEquals(1, host.state.activeCombat!!.round)
+            assertEquals(setOf("p1", "p2", "p3"), host.state.activeCombat!!.lockedActions.keys)
+
+            combat.submitAction("four-p4", "p4", CombatActionType.DODGE, 3_103)
+
+            assertEquals(2, host.state.activeCombat!!.round)
+            assertEquals(emptySet<String>(), host.state.activeCombat!!.lockedActions.keys)
+            assertEquals(setOf("p1", "p2", "p3", "p4"), host.state.activeCombat!!.players.keys)
+        }
+
         test("coop combo victory clears boss and unlocks aftermath") {
             val initial = worldWithCombat("boss-victory").copy(
                 activeCombat = worldWithCombat("boss-victory").activeCombat!!.copy(
@@ -131,6 +149,24 @@ object ArcCombatCoordinatorTest {
 
     private fun worldWithCombat(id: String): WorldState {
         val world = baseWorld(id)
+        val arc = ArcState(
+            arcId = "ironwake:marine:$id",
+            islandId = "ironwake-atoll",
+            seed = 77L,
+            archetype = ArcArchetype.MARINE_OCCUPATION,
+            phase = ArcPhase.AFTERMATH,
+            escalation = 3,
+        )
+        return world.copy(activeArc = arc, activeCombat = ArcBossFactory.create(world, arc))
+    }
+
+    private fun fourPlayerWorldWithCombat(id: String): WorldState {
+        val world = baseWorld(id).copy(
+            players = baseWorld(id).players + mapOf(
+                "p3" to PlayerState("p3", "Rika", 32, 32, 4_000_000L),
+                "p4" to PlayerState("p4", "Bram", 35, 35, 3_000_000L),
+            ),
+        )
         val arc = ArcState(
             arcId = "ironwake:marine:$id",
             islandId = "ironwake-atoll",
