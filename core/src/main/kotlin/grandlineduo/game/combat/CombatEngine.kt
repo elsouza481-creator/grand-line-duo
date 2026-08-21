@@ -91,9 +91,7 @@ class CombatEngine(private val seed: Long, private val modifiers: Map<String, Co
     private fun resolve(state: CombatState): CombatRoundResult {
         val random = Random(seed xor (state.round.toLong() * -7046029254386353131L))
         val actions = state.lockedActions
-        val p1 = actions["p1"]
-        val p2 = actions["p2"]
-        val coopCombo = isCoopCombo(p1, p2)
+        val coopCombo = isCoopCombo(actions.values)
         val log = mutableListOf<String>()
 
         var enemyDamage = 0
@@ -168,16 +166,15 @@ class CombatEngine(private val seed: Long, private val modifiers: Map<String, Co
         return CombatRoundResult(nextState, enemyDamage, playerDamage, coopCombo, log)
     }
 
-    private fun isCoopCombo(p1: CombatAction?, p2: CombatAction?): Boolean {
-        if (p1 == null || p2 == null) return false
+    private fun isCoopCombo(actions: Collection<CombatAction>): Boolean {
         fun finisherLike(type: CombatActionType): Boolean = type in setOf(
             CombatActionType.FINISHER,
             CombatActionType.HAKI_BUSOSHOKU,
             CombatActionType.HAKI_HAOSHOKU,
             CombatActionType.DEVIL_FRUIT,
         )
-        return (p1.type == CombatActionType.SETUP && finisherLike(p2.type)) ||
-            (p2.type == CombatActionType.SETUP && finisherLike(p1.type))
+        return actions.any { it.type == CombatActionType.SETUP } &&
+            actions.any { finisherLike(it.type) }
     }
 
     private fun nextTelegraph(round: Int, players: Map<String, Combatant>): EnemyTelegraph {
