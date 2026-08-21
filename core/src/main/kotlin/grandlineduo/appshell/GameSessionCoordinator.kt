@@ -42,6 +42,27 @@ import java.util.UUID
 
 enum class SessionMode { NONE, SOLO, HOST_COOP, CLIENT_COOP }
 
+data class SessionHudState(
+    val mode: SessionMode,
+    val localActorId: String,
+    val networkConnectedCount: Int?,
+    val maxNetworkPlayers: Int,
+    val networkConnectedPlayerIds: Set<String>,
+    val createdPlayerIds: Set<String>,
+) {
+    val badge: String
+        get() = when (mode) {
+            SessionMode.HOST_COOP -> {
+                val slots = networkConnectedPlayerIds.sorted().joinToString(", ") { it.uppercase() }
+                "LAN ${networkConnectedCount ?: 1}/$maxNetworkPlayers • slot ${localActorId.uppercase()} • conectados $slots"
+            }
+            SessionMode.CLIENT_COOP ->
+                "LAN • slot ${localActorId.uppercase()} • tripulação ${createdPlayerIds.size}/$maxNetworkPlayers criada"
+            SessionMode.SOLO -> "SOLO • ${localActorId.uppercase()} • tripulação ${createdPlayerIds.size}/2"
+            SessionMode.NONE -> "SEM SESSÃO"
+        }
+}
+
 /**
  * One session API for both single-player and LAN co-op. P1 is always authoritative.
  * In solo, P2 uses a deterministic companion planner through the exact same gameplay commands.
@@ -64,6 +85,62 @@ class GameSessionCoordinator(private val saveRoot: Path? = null) : Closeable {
 
     val boundPort: Int get() = hostServer?.boundPort ?: -1
     val hasRemotePlayer: Boolean get() = hostServer?.hasActiveClient == true || mode == SessionMode.CLIENT_COOP
+
+    @Synchronized
+    fun sessionHudState(): SessionHudState {
+        val createdPlayerIds = if (mode == SessionMode.NONE) {
+            emptySet()
+        } else {
+            runCatching { worldState() }.getOrNull()
+                ?.players
+                ?.values
+                ?.asSequence()
+                ?.filter { it.profile != null }
+                ?.map { it.playerId }
+                ?.filter { it in HUMAN_PLAYER_IDS }
+                ?.toSortedSet()
+                ?: emptySet()
+        }
+        return when (mode) {
+            SessionMode.HOST_COOP -> {
+                val connected = linkedSetOf("p1").apply {
+                    addAll(hostServer?.activeClientIds.orEmpty())
+                }
+                SessionHudState(
+                    mode = mode,
+                    localActorId = actorId,
+                    networkConnectedCount = connected.size,
+                    maxNetworkPlayers = 4,
+                    networkConnectedPlayerIds = connected,
+                    createdPlayerIds = createdPlayerIds,
+                )
+            }
+            SessionMode.CLIENT_COOP -> SessionHudState(
+                mode = mode,
+                localActorId = actorId,
+                networkConnectedCount = null,
+                maxNetworkPlayers = 4,
+                networkConnectedPlayerIds = emptySet(),
+                createdPlayerIds = createdPlayerIds,
+            )
+            SessionMode.SOLO -> SessionHudState(
+                mode = mode,
+                localActorId = actorId,
+                networkConnectedCount = null,
+                maxNetworkPlayers = 2,
+                networkConnectedPlayerIds = emptySet(),
+                createdPlayerIds = createdPlayerIds,
+            )
+            SessionMode.NONE -> SessionHudState(
+                mode = mode,
+                localActorId = actorId,
+                networkConnectedCount = null,
+                maxNetworkPlayers = 0,
+                networkConnectedPlayerIds = emptySet(),
+                createdPlayerIds = emptySet(),
+            )
+        }
+    }
 
     @Synchronized
     fun startSolo(campaignId: String = "gld-${UUID.randomUUID()}"): WorldState {
@@ -627,4 +704,8 @@ class GameSessionCoordinator(private val saveRoot: Path? = null) : Closeable {
     }
 
     override fun close() = closeSessionResources()
+
+    companion object {
+        private val HUMAN_PLAYER_IDS = setOf("p1", "p2", "p3", "p4")
+    }
 }
