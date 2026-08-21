@@ -101,7 +101,7 @@ object GamePresenter {
         if (activeCombat != null) return combatPresentation(world, actorId, activeCombat)
 
         val restored = StormglassPersistenceAdapter.decode(world)
-        if (actorId !in LEGACY_DECISION_PLAYER_IDS && restored.scenario.stage != grandlineduo.game.scenario.ScenarioStage.COMPLETE) {
+        if (actorId !in restored.scenario.participantIds && restored.scenario.stage != grandlineduo.game.scenario.ScenarioStage.COMPLETE) {
             return legacyObserverPresentation(world, actorId, "a narrativa de Stormglass")
         }
         restored.combat?.let { combat ->
@@ -176,7 +176,7 @@ object GamePresenter {
         GamePresentation(
             GameScreen.WAITING_FOR_PARTNER,
             "Observando $context",
-            "P1 e P2 estão resolvendo esta fase legada de duas pessoas. Você continua sincronizado e volta à exploração quando ela terminar.",
+            "Os participantes desta fase estão resolvendo as decisões. Você continua sincronizado e volta à exploração quando ela terminar.",
             statusFor(world, actorId),
             emptyList(),
         )
@@ -487,7 +487,6 @@ object GamePresenter {
     }
 
     private val HUMAN_PLAYER_IDS = setOf("p1", "p2", "p3", "p4")
-    private val LEGACY_DECISION_PLAYER_IDS = setOf("p1", "p2")
 
     private val BASIC_COMBAT_ACTIONS = listOf(
         CombatActionType.ATTACK,
