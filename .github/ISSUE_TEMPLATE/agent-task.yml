@@ -1,0 +1,60 @@
+name: Autonomous development task
+description: Define a task that can safely enter the GRAND LINE DUO autonomous development queue
+title: "[Agent] "
+labels:
+  - "agent:ready"
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form for one focused development task. Keep acceptance criteria concrete enough to verify automatically or by review.
+
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired outcome
+      description: What player, developer, or repository outcome should this task produce?
+      placeholder: Describe the finished behavior, not just the implementation idea.
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: List observable conditions that must be true for the task to be complete.
+      placeholder: |
+        - Condition 1
+        - Condition 2
+        - Relevant test/build passes
+    validations:
+      required: true
+
+  - type: textarea
+    id: constraints
+    attributes:
+      label: Constraints
+      description: State compatibility, balance, architecture, security, or scope limits. Write "None beyond repository rules" if there are no extra constraints.
+    validations:
+      required: true
+
+  - type: textarea
+    id: systems
+    attributes:
+      label: Likely affected systems or files
+      description: Optional pointers that help the worker stay focused. These are hints, not permission for unrelated refactors.
+      placeholder: core combat, app UI, networking, quests, specific paths, etc.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Autonomous-work safety
+      options:
+        - label: This task is focused enough for one branch and one pull request.
+          required: true
+        - label: This task does not require repository secrets to be exposed in code or logs.
+          required: true
+        - label: I understand that adding `agent:stop` must prevent the task from being selected.
+          required: true
