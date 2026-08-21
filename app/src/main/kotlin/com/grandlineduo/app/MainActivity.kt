@@ -144,6 +144,7 @@ class MainActivity : Activity() {
                     "COMBAT" -> coordinator.submitCombatAction(CombatActionType.valueOf(action.id))
                     "POWER" -> coordinator.submitPowerAction(action.id)
                     "VOYAGE" -> coordinator.submitVoyageAction(VoyageAction.valueOf(action.id))
+                    "DUEL" -> coordinator.submitDuelAction(action.id)
                     "QUEST" -> {
                         val parts = action.id.split('|', limit = 3)
                         val actionType = parts[0]
@@ -210,7 +211,7 @@ class MainActivity : Activity() {
                     onBack = { closeOverlay() }
                     onWorldAction = { action, target, amount -> runWorldActionOverlay("CREW", action, target, amount) }
                 }
-                view.render(world)
+                view.render(world, coordinator.actorId)
                 setContentView(view)
             }
             "TRAINING" -> {

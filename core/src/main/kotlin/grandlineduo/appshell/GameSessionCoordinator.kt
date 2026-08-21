@@ -249,6 +249,12 @@ class GameSessionCoordinator(private val saveRoot: Path? = null) : Closeable {
     }
 
     @Synchronized
+    fun submitDuelAction(action: String): WorldState {
+        sendGameplay(GameplayWireCommand.DuelAction(nextCommandId("duel"), actorId, action))
+        return worldState()
+    }
+
+    @Synchronized
     fun worldState(): WorldState = when (mode) {
         SessionMode.SOLO, SessionMode.HOST_COOP -> hostReplica?.state
             ?: throw IllegalStateException("No host campaign")
