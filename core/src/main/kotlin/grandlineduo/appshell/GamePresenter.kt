@@ -89,8 +89,10 @@ object GamePresenter {
                 statusFor(world, actorId),
             )
         }
-        if (actorId !in LEGACY_DECISION_PLAYER_IDS && world.activeArc?.phase != null && world.activeArc?.phase != ArcPhase.COMPLETE) {
-            return legacyObserverPresentation(world, actorId, "o arco narrativo")
+        world.activeArc?.let { arc ->
+            if (arc.phase != ArcPhase.COMPLETE && actorId !in arc.participantIds) {
+                return legacyObserverPresentation(world, actorId, "o arco narrativo")
+            }
         }
         val activeCombat = world.activeCombat
         if (activeCombat?.status == CombatStatus.DEFEAT) {
@@ -127,11 +129,11 @@ object GamePresenter {
             if (arc.phase == ArcPhase.COMPLETE) {
                 return hub(world, actorId, "O conflito desta ilha terminou. Explore o porto, reabasteça e encontre o cais para escolher a próxima rota.")
             }
-            if (actorId !in LEGACY_DECISION_PLAYER_IDS) {
+            if (actorId !in arc.participantIds) {
                 return legacyObserverPresentation(world, actorId, "o arco narrativo")
             }
             if (actorId in arc.actedThisPhase) {
-                return GamePresentation(GameScreen.WAITING_FOR_PARTNER, "Decisão registrada", "Aguardando a outra decisão para o Director resolver a cena.", statusFor(world, actorId))
+                return GamePresentation(GameScreen.WAITING_FOR_PARTNER, "Decisão registrada", "Aguardando as demais decisões para o Director resolver a cena.", statusFor(world, actorId))
             }
             val view = ArcEngine.view(arc, actorId)
             return GamePresentation(
