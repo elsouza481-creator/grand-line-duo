@@ -112,14 +112,14 @@ object GamePresenter {
         }
 
         world.activeVoyage?.let { voyage ->
-            if (actorId !in LEGACY_DECISION_PLAYER_IDS) {
+            if (actorId !in voyage.participants) {
                 return legacyObserverPresentation(world, actorId, "o incidente de viagem")
             }
             val already = actorId in voyage.actions
             return GamePresentation(
                 screen = if (already) GameScreen.WAITING_FOR_PARTNER else GameScreen.VOYAGE,
                 title = "Incidente no mar: ${voyage.incident.type.name.replace('_', ' ')}",
-                body = if (already) "Sua ação está travada. Aguardando a outra decisão." else "O mar virou contra o navio. Escolha sua função nesta janela tática.",
+                body = if (already) "Sua ação está travada. Aguardando as demais decisões." else "O mar virou contra o navio. Escolha sua função nesta janela tática.",
                 status = statusFor(world, actorId),
                 actions = if (already) emptyList() else VoyageAction.entries.map { GameAction(it.name, voyageLabel(it), "VOYAGE") },
             )
