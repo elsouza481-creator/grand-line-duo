@@ -223,12 +223,23 @@ class GameSessionCoordinator(private val saveRoot: Path? = null) : Closeable {
                 ?: throw IllegalArgumentException("Destination $targetIslandId is not available from ${world.islandId}")
         }
         val incidentType = VoyageIncidentType.entries[voyageIndex % VoyageIncidentType.entries.size]
+        val voyageParticipants = if (mode == SessionMode.SOLO) {
+            setOf("p1", "p2")
+        } else {
+            world.players.values
+                .filter { it.profile != null }
+                .map { it.playerId }
+                .filter { it in setOf("p1", "p2", "p3", "p4") }
+                .toSet()
+        }
+        require(voyageParticipants.size >= 2) { "At least two created players are required for a co-op voyage" }
         val encounter = VoyageEncounter(
-            VoyageIncident(
+            incident = VoyageIncident(
                 type = incidentType,
                 severity = ((target.danger + 2) / 3).coerceIn(1, 4),
                 seed = campaignSeed(world.campaignId) xor (voyageIndex.toLong() * 7919L) xor target.id.hashCode().toLong(),
-            )
+            ),
+            participants = voyageParticipants,
         )
         val flags = world.worldFlags + mapOf(
             "campaign.pendingIsland" to target.id,
