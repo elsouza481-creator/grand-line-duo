@@ -28,6 +28,48 @@ object TrainingDuelPresentationTest {
             assertTrue(together.actions.any { it.kind == "EXPLORE_MOVE" })
         }
 
+        test("four player training arena exposes selectable rivals and spectators stay outside the duel") {
+            var world = fourPlayerWorld("duel-present-four")
+            val training = trainingPosition(world)
+            listOf("p1", "p2", "p3", "p4").forEach { playerId ->
+                world = ExplorationEngine.place(world, playerId, training)
+            }
+
+            val p3Offer = GamePresenter.present(world, "p3")
+            val offeredRivals = p3Offer.actions
+                .filter { it.kind == "DUEL_CHALLENGE" }
+                .map { it.id }
+                .toSet()
+            assertEquals(setOf("p1", "p2", "p4"), offeredRivals)
+
+            world = TrainingDuelEngine.challenge(world, "p3", "p4")
+            val challenger = GamePresenter.present(world, "p3")
+            val opponent = GamePresenter.present(world, "p4")
+            val observer = GamePresenter.present(world, "p1")
+            assertTrue("Dara" in challenger.body)
+            assertTrue("Cato" in opponent.body)
+            assertTrue(challenger.actions.any { it.kind == "DUEL_CANCEL" })
+            assertTrue(opponent.actions.any { it.kind == "DUEL_ACCEPT" })
+            assertTrue(observer.actions.none { it.kind.startsWith("DUEL_") })
+            assertTrue("P3" in observer.body.uppercase() && "P4" in observer.body.uppercase())
+
+            world = TrainingDuelEngine.accept(world, "p4")
+            val activeP3 = GamePresenter.present(world, "p3")
+            val activeP4 = GamePresenter.present(world, "p4")
+            val activeObserver = GamePresenter.present(world, "p2")
+            assertTrue("28" in activeP3.body && "22" in activeP3.body)
+            assertTrue("22" in activeP4.body && "28" in activeP4.body)
+            assertEquals(
+                setOf("ATTACK", "DEFEND", "DODGE"),
+                activeP3.actions.filter { it.kind == "DUEL_ACTION" }.map { it.id }.toSet(),
+            )
+            assertEquals(
+                setOf("ATTACK", "DEFEND", "DODGE"),
+                activeP4.actions.filter { it.kind == "DUEL_ACTION" }.map { it.id }.toSet(),
+            )
+            assertTrue(activeObserver.actions.none { it.kind.startsWith("DUEL_") })
+        }
+
         test("challenged player can accept or decline while challenger can cancel in the arena") {
             var world = world("duel-present-challenge")
             val training = trainingPosition(world)
@@ -74,8 +116,8 @@ object TrainingDuelPresentationTest {
         .interactions.entries.single { it.value == ExplorationInteraction.TRAINING }.key
 
     private fun world(id: String): WorldState {
-        val p1Profile = (CharacterCreation.create(GameSessionCoordinatorTest.validDraft("Kairo")) as CharacterCreationResult.Success).profile
-        val p2Profile = (CharacterCreation.create(GameSessionCoordinatorTest.validDraft("Namiya")) as CharacterCreationResult.Success).profile
+        val p1Profile = profile("Kairo")
+        val p2Profile = profile("Namiya")
         return WorldState(
             campaignId = id,
             islandId = "stormglass-cay",
@@ -86,4 +128,27 @@ object TrainingDuelPresentationTest {
             worldFlags = mapOf("sg.stage" to "COMPLETE"),
         )
     }
+
+    private fun fourPlayerWorld(id: String): WorldState {
+        val profiles = mapOf(
+            "p1" to profile("Kairo"),
+            "p2" to profile("Namiya"),
+            "p3" to profile("Cato"),
+            "p4" to profile("Dara"),
+        )
+        return WorldState(
+            campaignId = id,
+            islandId = "stormglass-cay",
+            players = mapOf(
+                "p1" to PlayerState("p1", "Kairo", 30, 30, 0, profile = profiles.getValue("p1")),
+                "p2" to PlayerState("p2", "Namiya", 24, 24, 0, profile = profiles.getValue("p2")),
+                "p3" to PlayerState("p3", "Cato", 28, 28, 0, profile = profiles.getValue("p3")),
+                "p4" to PlayerState("p4", "Dara", 22, 22, 0, profile = profiles.getValue("p4")),
+            ),
+            worldFlags = mapOf("sg.stage" to "COMPLETE"),
+        )
+    }
+
+    private fun profile(name: String) =
+        (CharacterCreation.create(GameSessionCoordinatorTest.validDraft(name)) as CharacterCreationResult.Success).profile
 }
