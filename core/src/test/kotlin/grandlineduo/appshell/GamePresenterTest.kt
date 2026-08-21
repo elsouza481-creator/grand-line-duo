@@ -11,6 +11,13 @@ import grandlineduo.game.combat.Combatant
 import grandlineduo.game.combat.EnemyAttackType
 import grandlineduo.game.combat.EnemyCombatant
 import grandlineduo.game.combat.EnemyTelegraph
+import grandlineduo.game.quest.QuestBoardState
+import grandlineduo.game.quest.QuestDefinition
+import grandlineduo.game.quest.QuestProgress
+import grandlineduo.game.quest.QuestRarity
+import grandlineduo.game.quest.QuestReward
+import grandlineduo.game.quest.QuestStatus
+import grandlineduo.game.quest.QuestType
 import grandlineduo.game.scenario.ScenarioState
 import grandlineduo.game.powers.HakiDiscipline
 import grandlineduo.game.powers.HakiState
@@ -44,7 +51,7 @@ object GamePresenterTest {
             assertTrue(presentation.actions.any { it.id == "help_dockworker" })
         }
 
-        test("hub exposes shop and only authoritative P1 can set sail") {
+        test("hub exposes contracts shop and only authoritative P1 can set sail") {
             val root = java.nio.file.Files.createTempDirectory("gld-present-hub")
             GameSessionCoordinator(root).use { session ->
                 session.startSolo("hub-present")
@@ -52,11 +59,40 @@ object GamePresenterTest {
                 val complete = session.worldState().copy(worldFlags = session.worldState().worldFlags + ("sg.stage" to "COMPLETE"))
                 val p1 = GamePresenter.present(complete, "p1")
                 val p2 = GamePresenter.present(complete, "p2")
+                assertTrue(p1.actions.any { it.id == "QUESTS" && it.kind == "MENU" })
                 assertTrue(p1.actions.any { it.id == "SHOP" })
                 assertTrue(p1.actions.any { it.id == "TRAINING" })
                 assertTrue(p1.actions.any { it.id == "SAIL" })
                 assertTrue(p2.actions.none { it.id == "SAIL" })
             }
+        }
+
+        test("quest board presentation exposes offers progress rewards and lifecycle actions") {
+            val offer = quest("offer-1", QuestRarity.RARE, requiredAmount = 3)
+            val active = quest("active-1", QuestRarity.EPIC, requiredAmount = 4)
+            val ready = quest("ready-1", QuestRarity.LEGENDARY, requiredAmount = 1)
+            val world = profiledWorld().copy(
+                questBoard = QuestBoardState(
+                    generationIndex = 7,
+                    offers = mapOf(offer.questId to offer),
+                    active = mapOf(
+                        active.questId to QuestProgress(active, QuestStatus.ACTIVE, progress = 2, acceptedBy = "p1"),
+                        ready.questId to QuestProgress(ready, QuestStatus.READY_TO_TURN_IN, progress = 1, acceptedBy = "p2"),
+                    ),
+                ),
+            )
+
+            val presentation = GamePresenter.presentQuests(world, "p1")
+
+            assertEquals(GameScreen.QUESTS, presentation.screen)
+            assertTrue(presentation.body.contains("RARE"))
+            assertTrue(presentation.body.contains("EPIC"))
+            assertTrue(presentation.body.contains("2/4"))
+            assertTrue(presentation.body.contains("Berries"))
+            assertTrue(presentation.actions.any { it.id == "REFRESH" && it.kind == "QUEST" })
+            assertTrue(presentation.actions.any { it.id == "ACCEPT|offer-1|1" && it.kind == "QUEST" })
+            assertTrue(presentation.actions.any { it.id == "PROGRESS|active-1|1" && it.kind == "QUEST" })
+            assertTrue(presentation.actions.any { it.id == "TURN_IN|ready-1|1" && it.kind == "QUEST" })
         }
 
         test("presenter exposes tactical actions while combat is active") {
@@ -84,6 +120,18 @@ object GamePresenterTest {
             assertTrue(presentation.actions.none { it.id == "HAKI_BUSOSHOKU" && it.kind == "COMBAT" })
         }
     }
+
+    private fun quest(id: String, rarity: QuestRarity, requiredAmount: Int) = QuestDefinition(
+        questId = id,
+        islandId = "stormglass-cay",
+        title = "Contrato $id",
+        type = QuestType.HUNT,
+        rarity = rarity,
+        issuerFaction = "LOCALS",
+        targetId = "corsair",
+        requiredAmount = requiredAmount,
+        reward = QuestReward(berries = 1_500, evolutionPoints = 2),
+    )
 
     private fun baseWorld() = WorldState(
         campaignId = "present",
