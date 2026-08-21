@@ -306,7 +306,7 @@ class GameSessionCoordinator(private val saveRoot: Path? = null) : Closeable {
             world.players.values
                 .filter { it.profile != null }
                 .map { it.playerId }
-                .filter { it in setOf("p1", "p2", "p3", "p4") }
+                .filter { it in HUMAN_PLAYER_IDS }
                 .toSet()
         }
         require(voyageParticipants.size >= 2) { "At least two created players are required for a co-op voyage" }
@@ -616,12 +616,18 @@ class GameSessionCoordinator(private val saveRoot: Path? = null) : Closeable {
                 ),
             )
             val arrived = host.state
+            val participants = arrived.players.values
+                .asSequence()
+                .filter { it.profile != null && it.playerId in HUMAN_PLAYER_IDS }
+                .map { it.playerId }
+                .toSet()
             val context = ArcStartContext(
                 seed = campaignSeed(arrived.campaignId) xor (voyageIndex.toLong() * 104729L) xor pending.hashCode().toLong(),
                 islandId = pending,
                 presentFactions = island.factions,
                 worldFlags = island.flags,
                 totalBounty = arrived.players.values.sumOf { it.bounty },
+                participantIds = participants,
             )
             ArcCoordinator(host, durableStore = durableStore).startArc(nextCommandId("arc-start"), context, System.currentTimeMillis())
         }
