@@ -130,6 +130,50 @@ object FourPlayerPresentationTest {
             assertTrue(waiting.actions.isEmpty())
             assertTrue(waiting.body.contains("Aguardando"))
         }
+
+        test("four player arc and voyage screens expose authoritative decision progress") {
+            val profiles = profiles(4)
+            val participants = profiles.keys.toSortedSet()
+            var arc = ArcEngine.start(
+                ArcStartContext(
+                    seed = 92L,
+                    islandId = "stormglass-cay",
+                    presentFactions = setOf("MARINES"),
+                    worldFlags = emptySet(),
+                    totalBounty = 0L,
+                    participantIds = participants,
+                )
+            )
+            arc = ArcEngine.choose(arc, "p1", "help_locals").state
+            arc = ArcEngine.choose(arc, "p2", "survey_route").state
+            val arcWorld = WorldState(
+                campaignId = "present-progress-arc",
+                islandId = "stormglass-cay",
+                players = players(profiles),
+                worldFlags = mapOf("sg.stage" to "COMPLETE"),
+                activeArc = arc,
+            )
+            val arcPresentation = GamePresenter.present(arcWorld, "p3")
+            assertEquals(GameScreen.ARC, arcPresentation.screen)
+            assertTrue(arcPresentation.body.contains("2/4"))
+
+            val encounter = VoyageEncounter(
+                incident = VoyageIncident(VoyageIncidentType.SEA_KING, severity = 3, seed = 405L),
+                participants = participants,
+                actions = mapOf("p1" to VoyageAction.HELM, "p2" to VoyageAction.CANNONS),
+            )
+            val voyageWorld = arcWorld.copy(activeArc = null, activeVoyage = encounter)
+            val voyagePresentation = GamePresenter.present(voyageWorld, "p3")
+            assertEquals(GameScreen.VOYAGE, voyagePresentation.screen)
+            assertTrue(voyagePresentation.body.contains("2/4"))
+
+            val afterP3 = voyageWorld.copy(
+                activeVoyage = encounter.copy(actions = encounter.actions + ("p3" to VoyageAction.LOOKOUT)),
+            )
+            val waiting = GamePresenter.present(afterP3, "p3")
+            assertEquals(GameScreen.WAITING_FOR_PARTNER, waiting.screen)
+            assertTrue(waiting.body.contains("3/4"))
+        }
     }
 
     private fun profiles(count: Int): Map<String, CharacterProfile> = (1..count).associate { index ->
