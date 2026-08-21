@@ -34,10 +34,14 @@ data class CrewMemberState(
         require(competence in 1..5) { "Crew competence must be in 1..5" }
         require(loyalty in -100..100) { "Crew loyalty must be in -100..100" }
         require(injurySeverity in 0..3) { "Crew injury severity must be in 0..3" }
-        require(playerAffinity.keys.all { it == "p1" || it == "p2" }) { "Crew affinity player must be p1 or p2" }
+        require(playerAffinity.keys.all { it in HUMAN_PLAYER_IDS }) { "Crew affinity player must be p1, p2, p3 or p4" }
         require(playerAffinity.values.all { it in -100..100 }) { "Crew player affinity must be in -100..100" }
         if (status == CrewStatus.ACTIVE) require(injurySeverity == 0) { "Active crew cannot carry an untreated injury" }
         if (status == CrewStatus.WOUNDED) require(injurySeverity > 0) { "Wounded crew requires injury severity" }
+    }
+
+    private companion object {
+        val HUMAN_PLAYER_IDS = setOf("p1", "p2", "p3", "p4")
     }
 }
 
