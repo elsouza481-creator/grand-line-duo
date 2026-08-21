@@ -25,7 +25,7 @@ class ExplorationCombatCoordinator(
         actionType: CombatActionType,
         hostTimestamp: Long,
     ): CampaignEvent {
-        require(playerId == "p1" || playerId == "p2") { "Unknown player $playerId" }
+        require(playerId in setOf("p1", "p2", "p3", "p4")) { "Unknown player $playerId" }
         // Must match GameplayWireCommand.CombatAction.fingerprint() so retries remain idempotent
         // through the handler's top-level collision guard.
         val fingerprint = "combat-action|$playerId|${actionType.name}"
