@@ -4,6 +4,7 @@ import grandlineduo.core.model.WorldState
 import grandlineduo.game.combat.CombatModifierResolver
 import grandlineduo.game.world.ExplorationEngine
 import grandlineduo.game.world.ExplorationInteraction
+import kotlin.math.abs
 
 enum class TrainingDuelStatus {
     CHALLENGED,
@@ -16,6 +17,11 @@ enum class TrainingDuelAction {
     DODGE,
 }
 
+enum class TrainingDuelVenue {
+    TRAINING_ARENA,
+    FIELD_SPARRING,
+}
+
 data class TrainingDuelState(
     val status: TrainingDuelStatus,
     val challengerId: String,
@@ -23,6 +29,7 @@ data class TrainingDuelState(
     val round: Int = 0,
     val duelHp: Map<String, Int> = emptyMap(),
     val lockedActions: Map<String, TrainingDuelAction> = emptyMap(),
+    val venue: TrainingDuelVenue = TrainingDuelVenue.TRAINING_ARENA,
 )
 
 data class TrainingDuelRecord(
@@ -40,6 +47,7 @@ object TrainingDuelEngine {
     private const val CHALLENGER = "${PREFIX}challenger"
     private const val OPPONENT = "${PREFIX}opponent"
     private const val ROUND = "${PREFIX}round"
+    private const val VENUE = "${PREFIX}venue"
     private const val HP_PREFIX = "${PREFIX}hp."
     private const val ACTION_PREFIX = "${PREFIX}action."
     private const val LAST_WINNER = "duel.last.winner"
@@ -51,6 +59,9 @@ object TrainingDuelEngine {
         val challenger = world.worldFlags[CHALLENGER] ?: return null
         val opponent = world.worldFlags[OPPONENT] ?: return null
         val round = world.worldFlags[ROUND]?.toIntOrNull() ?: 0
+        val venue = world.worldFlags[VENUE]
+            ?.let(TrainingDuelVenue::valueOf)
+            ?: TrainingDuelVenue.TRAINING_ARENA
         val participants = linkedSetOf(challenger, opponent)
         val hp = buildMap {
             participants.forEach { playerId ->
@@ -64,7 +75,7 @@ object TrainingDuelEngine {
                 }
             }
         }
-        return TrainingDuelState(status, challenger, opponent, round, hp, actions)
+        return TrainingDuelState(status, challenger, opponent, round, hp, actions, venue)
     }
 
     fun lastWinner(world: WorldState): String? = world.worldFlags[LAST_WINNER]
@@ -88,26 +99,30 @@ object TrainingDuelEngine {
         require(actorId != opponentId) { "A player cannot challenge themselves" }
         require(state(world) == null) { "A training duel is already pending or active" }
         requireBothAtTraining(world, actorId, opponentId)
-        return world.copy(
-            worldFlags = world.worldFlags + mapOf(
-                STATUS to TrainingDuelStatus.CHALLENGED.name,
-                CHALLENGER to actorId,
-                OPPONENT to opponentId,
-            ),
-        )
+        return createChallenge(world, actorId, opponentId, TrainingDuelVenue.TRAINING_ARENA)
+    }
+
+    fun challengeAdjacent(world: WorldState, actorId: String, opponentId: String): WorldState {
+        requireHuman(world, actorId)
+        requireHuman(world, opponentId)
+        require(actorId != opponentId) { "A player cannot challenge themselves" }
+        require(state(world) == null) { "A duel is already pending or active" }
+        requireAdjacent(world, actorId, opponentId)
+        return createChallenge(world, actorId, opponentId, TrainingDuelVenue.FIELD_SPARRING)
     }
 
     fun accept(world: WorldState, actorId: String): WorldState {
         val duel = requireNotNull(state(world)) { "No training duel challenge is pending" }
         require(duel.status == TrainingDuelStatus.CHALLENGED) { "Training duel is already active" }
         require(actorId == duel.opponentId) { "Only the challenged player can accept" }
-        requireBothAtTraining(world, duel.challengerId, duel.opponentId)
+        requireVenueEligibility(world, duel)
         val challenger = world.players.getValue(duel.challengerId)
         val opponent = world.players.getValue(duel.opponentId)
         val flags = clearActions(world.worldFlags) + mapOf(
             STATUS to TrainingDuelStatus.ACTIVE.name,
             CHALLENGER to duel.challengerId,
             OPPONENT to duel.opponentId,
+            VENUE to duel.venue.name,
             ROUND to "1",
             hpKey(duel.challengerId) to challenger.maxHp.toString(),
             hpKey(duel.opponentId) to opponent.maxHp.toString(),
@@ -133,7 +148,7 @@ object TrainingDuelEngine {
         val duel = requireNotNull(state(world)) { "No active training duel" }
         require(duel.status == TrainingDuelStatus.ACTIVE) { "Training duel has not been accepted" }
         require(actorId in participants(duel)) { "Player is not part of this duel" }
-        requireBothAtTraining(world, duel.challengerId, duel.opponentId)
+        requireVenueEligibility(world, duel)
         require(actorId !in duel.lockedActions) { "Duel action already locked for this round" }
 
         val lockedWorld = world.copy(worldFlags = world.worldFlags + (actionKey(actorId) to action.name))
@@ -156,6 +171,20 @@ object TrainingDuelEngine {
     }
 
     fun blocksWorldMovement(world: WorldState): Boolean = state(world) != null
+
+    private fun createChallenge(
+        world: WorldState,
+        actorId: String,
+        opponentId: String,
+        venue: TrainingDuelVenue,
+    ): WorldState = world.copy(
+        worldFlags = world.worldFlags + mapOf(
+            STATUS to TrainingDuelStatus.CHALLENGED.name,
+            CHALLENGER to actorId,
+            OPPONENT to opponentId,
+            VENUE to venue.name,
+        ),
+    )
 
     private fun resolveRound(world: WorldState, duel: TrainingDuelState): WorldState {
         val challengerId = duel.challengerId
@@ -213,18 +242,20 @@ object TrainingDuelEngine {
             LAST_WINNER to winner,
             LAST_ROUND to round.toString(),
         )
-        if (winner == "DRAW") {
-            participants(duel).forEach { playerId ->
-                flags = incrementRecord(flags, playerId, "draws")
-            }
-        } else {
-            require(winner in participants(duel)) { "Duel winner must be a participant" }
-            val loser = otherParticipant(duel, winner)
-            flags = incrementRecord(flags, winner, "wins")
-            flags = incrementRecord(flags, loser, "losses")
-            if (forfeitingPlayerId != null) {
-                require(forfeitingPlayerId == loser) { "Only the losing participant can forfeit" }
-                flags = incrementRecord(flags, loser, "forfeits")
+        if (duel.venue == TrainingDuelVenue.TRAINING_ARENA) {
+            if (winner == "DRAW") {
+                participants(duel).forEach { playerId ->
+                    flags = incrementRecord(flags, playerId, "draws")
+                }
+            } else {
+                require(winner in participants(duel)) { "Duel winner must be a participant" }
+                val loser = otherParticipant(duel, winner)
+                flags = incrementRecord(flags, winner, "wins")
+                flags = incrementRecord(flags, loser, "losses")
+                if (forfeitingPlayerId != null) {
+                    require(forfeitingPlayerId == loser) { "Only the losing participant can forfeit" }
+                    flags = incrementRecord(flags, loser, "forfeits")
+                }
             }
         }
         return world.copy(worldFlags = flags)
@@ -247,6 +278,13 @@ object TrainingDuelEngine {
     private fun clearActive(flags: Map<String, String>): Map<String, String> =
         flags.filterKeys { !it.startsWith(PREFIX) }
 
+    private fun requireVenueEligibility(world: WorldState, duel: TrainingDuelState) {
+        when (duel.venue) {
+            TrainingDuelVenue.TRAINING_ARENA -> requireBothAtTraining(world, duel.challengerId, duel.opponentId)
+            TrainingDuelVenue.FIELD_SPARRING -> requireAdjacent(world, duel.challengerId, duel.opponentId)
+        }
+    }
+
     private fun requireBothAtTraining(world: WorldState, firstId: String, secondId: String) {
         require(ExplorationEngine.interactionAt(world, firstId) == ExplorationInteraction.TRAINING) {
             "$firstId must be at the physical training area"
@@ -254,6 +292,13 @@ object TrainingDuelEngine {
         require(ExplorationEngine.interactionAt(world, secondId) == ExplorationInteraction.TRAINING) {
             "$secondId must be at the physical training area"
         }
+    }
+
+    private fun requireAdjacent(world: WorldState, firstId: String, secondId: String) {
+        val first = ExplorationEngine.position(world, firstId)
+        val second = ExplorationEngine.position(world, secondId)
+        val distance = abs(first.x - second.x) + abs(first.y - second.y)
+        require(distance == 1) { "$firstId and $secondId must be on adjacent tiles for field sparring" }
     }
 
     private fun requireHuman(world: WorldState, playerId: String) {
