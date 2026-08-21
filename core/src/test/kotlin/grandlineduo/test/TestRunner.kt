@@ -49,6 +49,7 @@ fun main() {
     grandlineduo.game.quest.QuestEngineTest.register()
     grandlineduo.game.quest.QuestDirectorBridgeTest.register()
     grandlineduo.game.quest.QuestPersistenceTest.register()
+    grandlineduo.game.quest.QuestLanIntegrationTest.register()
     grandlineduo.game.arc.ArcEngineTest.register()
     grandlineduo.game.arc.ArcDirectorBridgeTest.register()
     grandlineduo.game.arc.ArcPersistenceTest.register()
