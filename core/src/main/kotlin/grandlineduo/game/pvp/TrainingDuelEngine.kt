@@ -25,6 +25,15 @@ data class TrainingDuelState(
     val lockedActions: Map<String, TrainingDuelAction> = emptyMap(),
 )
 
+data class TrainingDuelRecord(
+    val wins: Int = 0,
+    val losses: Int = 0,
+    val draws: Int = 0,
+    val forfeits: Int = 0,
+) {
+    val matches: Int get() = wins + losses + draws
+}
+
 object TrainingDuelEngine {
     private const val PREFIX = "duel.active."
     private const val STATUS = "${PREFIX}status"
@@ -35,6 +44,7 @@ object TrainingDuelEngine {
     private const val ACTION_PREFIX = "${PREFIX}action."
     private const val LAST_WINNER = "duel.last.winner"
     private const val LAST_ROUND = "duel.last.round"
+    private const val RECORD_PREFIX = "duel.record."
 
     fun state(world: WorldState): TrainingDuelState? {
         val status = world.worldFlags[STATUS]?.let(TrainingDuelStatus::valueOf) ?: return null
@@ -58,6 +68,16 @@ object TrainingDuelEngine {
     }
 
     fun lastWinner(world: WorldState): String? = world.worldFlags[LAST_WINNER]
+
+    fun record(world: WorldState, playerId: String): TrainingDuelRecord {
+        require(playerId in HUMAN_PLAYER_IDS) { "Unknown duel player $playerId" }
+        return TrainingDuelRecord(
+            wins = recordValue(world, playerId, "wins"),
+            losses = recordValue(world, playerId, "losses"),
+            draws = recordValue(world, playerId, "draws"),
+            forfeits = recordValue(world, playerId, "forfeits"),
+        )
+    }
 
     fun challenge(world: WorldState, actorId: String): WorldState =
         challenge(world, actorId, legacyOpponent(actorId))
@@ -126,7 +146,13 @@ object TrainingDuelEngine {
         val duel = requireNotNull(state(world)) { "No active training duel" }
         require(duel.status == TrainingDuelStatus.ACTIVE) { "Training duel has not started" }
         require(actorId in participants(duel)) { "Player is not part of this duel" }
-        return finish(world, otherParticipant(duel, actorId), duel.round)
+        return finish(
+            world = world,
+            duel = duel,
+            winner = otherParticipant(duel, actorId),
+            round = duel.round,
+            forfeitingPlayerId = actorId,
+        )
     }
 
     fun blocksWorldMovement(world: WorldState): Boolean = state(world) != null
@@ -149,7 +175,7 @@ object TrainingDuelEngine {
                 nextChallenger == 0 -> opponentId
                 else -> challengerId
             }
-            return finish(world, winner, duel.round)
+            return finish(world, duel, winner, duel.round)
         }
 
         val nextFlags = clearActions(world.worldFlags) + mapOf(
@@ -176,12 +202,44 @@ object TrainingDuelEngine {
         return (attack - reduction).coerceAtLeast(1)
     }
 
-    private fun finish(world: WorldState, winner: String, round: Int): WorldState = world.copy(
-        worldFlags = clearActive(world.worldFlags) + mapOf(
+    private fun finish(
+        world: WorldState,
+        duel: TrainingDuelState,
+        winner: String,
+        round: Int,
+        forfeitingPlayerId: String? = null,
+    ): WorldState {
+        var flags = clearActive(world.worldFlags) + mapOf(
             LAST_WINNER to winner,
             LAST_ROUND to round.toString(),
-        ),
-    )
+        )
+        if (winner == "DRAW") {
+            participants(duel).forEach { playerId ->
+                flags = incrementRecord(flags, playerId, "draws")
+            }
+        } else {
+            require(winner in participants(duel)) { "Duel winner must be a participant" }
+            val loser = otherParticipant(duel, winner)
+            flags = incrementRecord(flags, winner, "wins")
+            flags = incrementRecord(flags, loser, "losses")
+            if (forfeitingPlayerId != null) {
+                require(forfeitingPlayerId == loser) { "Only the losing participant can forfeit" }
+                flags = incrementRecord(flags, loser, "forfeits")
+            }
+        }
+        return world.copy(worldFlags = flags)
+    }
+
+    private fun incrementRecord(flags: Map<String, String>, playerId: String, field: String): Map<String, String> {
+        val key = recordKey(playerId, field)
+        val current = flags[key]?.toIntOrNull() ?: 0
+        return flags + (key to (current + 1).toString())
+    }
+
+    private fun recordValue(world: WorldState, playerId: String, field: String): Int =
+        world.worldFlags[recordKey(playerId, field)]?.toIntOrNull() ?: 0
+
+    private fun recordKey(playerId: String, field: String) = "$RECORD_PREFIX$playerId.$field"
 
     private fun clearActions(flags: Map<String, String>): Map<String, String> =
         flags.filterKeys { !it.startsWith(ACTION_PREFIX) }
