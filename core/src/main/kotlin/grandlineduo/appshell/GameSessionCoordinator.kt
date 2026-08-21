@@ -218,6 +218,16 @@ class GameSessionCoordinator(private val saveRoot: Path? = null) : Closeable {
     }
 
     @Synchronized
+    fun reconnect(): WorldState {
+        require(mode == SessionMode.CLIENT_COOP) { "Only a LAN client can reconnect" }
+        val connection = clientConnection ?: throw IllegalStateException("No client connection")
+        connection.connect()
+        actorId = connection.assignedPeerId
+            ?: throw IllegalStateException("The host did not preserve the assigned player slot")
+        return clientReplica?.state ?: throw IllegalStateException("No client campaign")
+    }
+
+    @Synchronized
     fun createCharacter(draft: CharacterDraft): WorldState {
         sendGameplay(
             GameplayWireCommand.CharacterCreate(
