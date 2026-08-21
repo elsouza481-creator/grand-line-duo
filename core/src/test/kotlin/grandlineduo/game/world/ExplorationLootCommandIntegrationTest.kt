@@ -1,5 +1,6 @@
 package grandlineduo.game.world
 
+import grandlineduo.core.hash.CanonicalStateHasher
 import grandlineduo.core.model.PlayerState
 import grandlineduo.core.model.WorldState
 import grandlineduo.core.network.ClientReplica
@@ -52,6 +53,48 @@ object ExplorationLootCommandIntegrationTest {
                 }
             }
         }
+
+        test("P4 collects shared loot in a four player room and all replicas converge") {
+            var initial = fourPlayerWorld("loot-lan-four")
+            val pickup = ExplorationEngine.mapFor(initial.campaignId, initial.islandId).pickups.values.single()
+            initial = ExplorationEngine.place(initial, "p4", pickup.position)
+            val host = HostReplica(initial)
+            val handler = StormglassGameplayCommandHandler(host, seed = 93)
+            val p2Replica = ClientReplica(initial)
+            val p3Replica = ClientReplica(initial)
+            val p4Replica = ClientReplica(initial)
+
+            LanHostServer(host, port = 0, gameplayCommandHandler = handler).use { server ->
+                server.start()
+                LanClientConnection("127.0.0.1", server.boundPort, "p2", p2Replica).use { p2 ->
+                    LanClientConnection("127.0.0.1", server.boundPort, "p3", p3Replica).use { p3 ->
+                        LanClientConnection("127.0.0.1", server.boundPort, "p4", p4Replica).use { p4 ->
+                            p2.connect()
+                            p3.connect()
+                            p4.connect()
+
+                            p4.sendGameplay(GameplayWireCommand.WorldAction("p4-loot", "p4", "LOOT_COLLECT", pickup.id, 999))
+                            p2.refresh()
+                            p3.refresh()
+
+                            assertTrue(ExplorationLootEngine.isCollected(host.state, pickup.id))
+                            assertEquals(initial.partyBerries + pickup.berries, host.state.partyBerries)
+                            assertEquals(pickup.amount, InventoryEngine.read(host.state, "p4").items[pickup.itemId])
+                            listOf("p1", "p2", "p3").forEach { playerId ->
+                                assertEquals(null, InventoryEngine.read(host.state, playerId).items[pickup.itemId])
+                            }
+                            assertEquals(host.state, p2Replica.state)
+                            assertEquals(host.state, p3Replica.state)
+                            assertEquals(host.state, p4Replica.state)
+                            val hash = CanonicalStateHasher.hash(host.state)
+                            assertEquals(hash, CanonicalStateHasher.hash(p2Replica.state))
+                            assertEquals(hash, CanonicalStateHasher.hash(p3Replica.state))
+                            assertEquals(hash, CanonicalStateHasher.hash(p4Replica.state))
+                        }
+                    }
+                }
+            }
+        }
     }
 
     private fun world(campaignId: String) = WorldState(
@@ -61,6 +104,18 @@ object ExplorationLootCommandIntegrationTest {
         players = mapOf(
             "p1" to PlayerState("p1", "A", 30, 30, 0),
             "p2" to PlayerState("p2", "B", 30, 30, 0),
+        ),
+    )
+
+    private fun fourPlayerWorld(campaignId: String) = WorldState(
+        campaignId = campaignId,
+        islandId = "stormglass-cay",
+        partyBerries = 500,
+        players = mapOf(
+            "p1" to PlayerState("p1", "A", 30, 30, 0),
+            "p2" to PlayerState("p2", "B", 30, 30, 0),
+            "p3" to PlayerState("p3", "C", 30, 30, 0),
+            "p4" to PlayerState("p4", "D", 30, 30, 0),
         ),
     )
 }
