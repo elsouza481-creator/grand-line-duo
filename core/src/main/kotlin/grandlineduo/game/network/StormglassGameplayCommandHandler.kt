@@ -29,6 +29,7 @@ import grandlineduo.game.crew.CrewRecruitmentCatalog
 import grandlineduo.game.crew.CrewRole
 import grandlineduo.game.quest.QuestDirectorBridge
 import grandlineduo.game.quest.QuestEngine
+import grandlineduo.game.quest.QuestBossCoordinator
 import grandlineduo.game.scenario.StormglassCayScenario
 import grandlineduo.game.powers.PowerTechniqueEngine
 import grandlineduo.game.powers.PowerDiscoveryEngine
@@ -55,6 +56,12 @@ class StormglassGameplayCommandHandler(
     private val scenarioEngine = StormglassCayScenario()
     private val arcCoordinator = ArcCoordinator(hostReplica, snapshotStore, durableStore)
     private val arcCombatCoordinator = ArcCombatCoordinator(hostReplica, snapshotStore, durableStore)
+    private val questBossCoordinator = QuestBossCoordinator(
+        hostReplica = hostReplica,
+        campaignSeed = seed,
+        snapshotStore = snapshotStore,
+        durableStore = durableStore,
+    )
 
     @Synchronized
     override fun handle(command: GameplayWireCommand, hostTimestamp: Long): CampaignEvent {
@@ -86,6 +93,14 @@ class StormglassGameplayCommandHandler(
             return applyPowerAction(before, command, fingerprint, hostTimestamp)
         }
         if (command is GameplayWireCommand.QuestAction) {
+            if (command.actionType.equals("START_BOSS", ignoreCase = true)) {
+                return questBossCoordinator.start(
+                    command.commandId,
+                    command.actorId,
+                    command.questId,
+                    hostTimestamp,
+                )
+            }
             return applyQuestAction(before, command, fingerprint, hostTimestamp)
         }
         if (command is GameplayWireCommand.CombatAction && before.activeCombat != null) {
@@ -95,12 +110,21 @@ class StormglassGameplayCommandHandler(
                 throw IllegalArgumentException("Unknown combat action ${command.actionType}")
             }
             require(type in BASIC_COMBAT_ACTIONS) { "Power techniques require a power action" }
-            return arcCombatCoordinator.submitAction(
-                command.commandId,
-                command.actorId,
-                type,
-                hostTimestamp,
-            )
+            return if (before.worldFlags[QuestBossCoordinator.ACTIVE_QUEST_FLAG] != null) {
+                questBossCoordinator.submitAction(
+                    command.commandId,
+                    command.actorId,
+                    type,
+                    hostTimestamp,
+                )
+            } else {
+                arcCombatCoordinator.submitAction(
+                    command.commandId,
+                    command.actorId,
+                    type,
+                    hostTimestamp,
+                )
+            }
         }
         val restored = StormglassPersistenceAdapter.decode(before)
 
@@ -411,6 +435,20 @@ class StormglassGameplayCommandHandler(
             "meta.powerEnergyCost" to prepared.technique.energyCost.toString(),
             "meta.powerBonus" to prepared.bonusDamage.toString(),
         )
+        if (
+            poweredWorld.activeCombat != null &&
+            poweredWorld.worldFlags[QuestBossCoordinator.ACTIVE_QUEST_FLAG] != null
+        ) {
+            return questBossCoordinator.submitPreparedAction(
+                commandId = command.commandId,
+                playerId = command.actorId,
+                actionType = prepared.combatAction,
+                preparedWorld = poweredWorld,
+                sourceFingerprint = fingerprint,
+                metadata = metadata,
+                hostTimestamp = hostTimestamp,
+            )
+        }
 
         val nextWorld = if (poweredWorld.activeCombat != null) {
             val arc = poweredWorld.activeArc ?: throw IllegalArgumentException("Active boss combat has no arc")
