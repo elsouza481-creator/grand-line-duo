@@ -144,6 +144,13 @@ class MainActivity : Activity() {
                     "COMBAT" -> coordinator.submitCombatAction(CombatActionType.valueOf(action.id))
                     "POWER" -> coordinator.submitPowerAction(action.id)
                     "VOYAGE" -> coordinator.submitVoyageAction(VoyageAction.valueOf(action.id))
+                    "QUEST" -> {
+                        val parts = action.id.split('|', limit = 3)
+                        val actionType = parts[0]
+                        val questId = parts.getOrElse(1) { "" }
+                        val amount = parts.getOrNull(2)?.toIntOrNull() ?: 1
+                        coordinator.submitQuestAction(actionType, questId, amount)
+                    }
                     "CAMPAIGN" -> coordinator.advanceCampaign()
                     else -> throw IllegalArgumentException("Ação não suportada: ${action.kind}")
                 }
@@ -157,6 +164,14 @@ class MainActivity : Activity() {
     private fun renderOverlay(id: String) {
         val world = runCatching { coordinator.worldState() }.getOrNull() ?: return
         when (id) {
+            "QUESTS" -> {
+                val view = GameplayScreen(this).apply {
+                    onHome = { closeOverlay() }
+                    onAction = { action -> dispatch(action) }
+                }
+                view.render(GamePresenter.presentQuests(world, coordinator.actorId))
+                setContentView(view)
+            }
             "INVENTORY" -> {
                 val view = InventoryScreen(this).apply {
                     onBack = { closeOverlay() }

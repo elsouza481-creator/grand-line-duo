@@ -233,6 +233,20 @@ class GameSessionCoordinator(private val saveRoot: Path? = null) : Closeable {
     }
 
     @Synchronized
+    fun submitQuestAction(action: String, questId: String = "", amount: Int = 1): WorldState {
+        sendGameplay(
+            GameplayWireCommand.QuestAction(
+  commandId = nextCommandId("quest"),
+  actorId = actorId,
+  actionType = action,
+  questId = questId,
+  amount = amount,
+            )
+        )
+        return worldState()
+    }
+
+    @Synchronized
     fun worldState(): WorldState = when (mode) {
         SessionMode.SOLO, SessionMode.HOST_COOP -> hostReplica?.state
             ?: throw IllegalStateException("No host campaign")
