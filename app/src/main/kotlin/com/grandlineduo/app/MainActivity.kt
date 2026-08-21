@@ -6,9 +6,11 @@ import android.os.Bundle
 import android.view.Window
 import android.widget.Toast
 import grandlineduo.appshell.GameAction
+import grandlineduo.appshell.GameActionRouter
 import grandlineduo.appshell.GamePresenter
 import grandlineduo.appshell.GameScreen
 import grandlineduo.appshell.GameSessionCoordinator
+import grandlineduo.appshell.SessionHudPresenter
 import grandlineduo.appshell.SessionMode
 import grandlineduo.game.combat.CombatActionType
 import grandlineduo.game.ship.VoyageAction
@@ -101,7 +103,10 @@ class MainActivity : Activity() {
             renderOverlay(currentOverlay!!)
             return
         }
-        val model = GamePresenter.present(world, coordinator.actorId)
+        val model = SessionHudPresenter.decorate(
+            GamePresenter.present(world, coordinator.actorId),
+            coordinator.sessionHudState(),
+        )
         if (model.screen == GameScreen.CHARACTER_CREATION) {
             if (characterView != null) return
             val creator = CharacterCreationScreen(this).apply {
@@ -155,17 +160,15 @@ class MainActivity : Activity() {
         }
         worker.execute {
             try {
-                when (action.kind) {
-                    "SCENARIO" -> coordinator.submitScenarioChoice(action.id)
-                    "ARC" -> coordinator.submitArcChoice(action.id)
-                    "COMBAT" -> coordinator.submitCombatAction(CombatActionType.valueOf(action.id))
-                    "POWER" -> coordinator.submitPowerAction(action.id)
-                    "VOYAGE" -> coordinator.submitVoyageAction(VoyageAction.valueOf(action.id))
-                    "EXPLORE_MOVE" -> coordinator.submitWorldAction("EXPLORE_MOVE", action.id, 1)
-                    "QUEST_ACCEPT", "QUEST_PROGRESS", "QUEST_TURN_IN", "LOOT_COLLECT",
-                    "DUEL_CHALLENGE", "DUEL_ACCEPT", "DUEL_DECLINE", "DUEL_CANCEL", "DUEL_ACTION", "DUEL_FORFEIT" ->
+                when {
+                    action.kind == "SCENARIO" -> coordinator.submitScenarioChoice(action.id)
+                    action.kind == "ARC" -> coordinator.submitArcChoice(action.id)
+                    action.kind == "COMBAT" -> coordinator.submitCombatAction(CombatActionType.valueOf(action.id))
+                    action.kind == "POWER" -> coordinator.submitPowerAction(action.id)
+                    action.kind == "VOYAGE" -> coordinator.submitVoyageAction(VoyageAction.valueOf(action.id))
+                    GameActionRouter.routesToWorldAction(action.kind) ->
                         coordinator.submitWorldAction(action.kind, action.id, 1)
-                    "CAMPAIGN" -> coordinator.advanceCampaign(action.id)
+                    action.kind == "CAMPAIGN" -> coordinator.advanceCampaign(action.id)
                     else -> throw IllegalArgumentException("Ação não suportada: ${action.kind}")
                 }
                 postWorld()
