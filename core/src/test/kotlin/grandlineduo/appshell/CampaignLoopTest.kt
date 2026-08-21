@@ -3,6 +3,7 @@ package grandlineduo.appshell
 import grandlineduo.game.StormglassPersistenceAdapter
 import grandlineduo.game.arc.ArcPhase
 import grandlineduo.game.combat.CombatActionType
+import grandlineduo.game.combat.CombatStatus
 import grandlineduo.game.combat.EnemyAttackType
 import grandlineduo.game.InventoryEngine
 import grandlineduo.game.scenario.ScenarioStage
@@ -64,6 +65,18 @@ object CampaignLoopTest {
                                     CombatActionType.DODGE
                                 } else CombatActionType.SETUP
                                 session.submitCombatAction(action)
+                                val afterCombat = session.worldState().activeCombat
+                                if (afterCombat?.status == CombatStatus.DEFEAT) {
+                                    error(
+                                        "Boss defeat after round=${combat.round} chosen=$action " +
+                                            "telegraph=${combat.telegraph.type}:${combat.telegraph.targetPlayerId} " +
+                                            "beforeP1=${combat.players["p1"]?.hp}/${combat.players["p1"]?.maxHp} " +
+                                            "beforeP2=${combat.players["p2"]?.hp}/${combat.players["p2"]?.maxHp} " +
+                                            "enemy=${combat.enemy.hp}/${combat.enemy.maxHp}@${combat.enemy.attackPower} " +
+                                            "afterP1=${afterCombat.players["p1"]?.hp} afterP2=${afterCombat.players["p2"]?.hp} " +
+                                            "afterEnemy=${afterCombat.enemy.hp}"
+                                    )
+                                }
                             }
                             GameScreen.VOYAGE -> session.submitVoyageAction(VoyageAction.HELM)
                             GameScreen.HUB -> {
