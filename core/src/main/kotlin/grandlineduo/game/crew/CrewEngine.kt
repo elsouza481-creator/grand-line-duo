@@ -22,7 +22,7 @@ object CrewEngine {
         member.copy(loyalty = (member.loyalty + delta).coerceIn(-100, 100))
 
     fun changeAffinity(member: CrewMemberState, playerId: String, delta: Int): CrewMemberState {
-        require(playerId == "p1" || playerId == "p2") { "Crew affinity player must be p1 or p2" }
+        require(playerId in HUMAN_PLAYER_IDS) { "Crew affinity player must be p1, p2, p3 or p4" }
         val current = member.playerAffinity[playerId] ?: 0
         return member.copy(playerAffinity = member.playerAffinity + (playerId to (current + delta).coerceIn(-100, 100)))
     }
@@ -90,4 +90,6 @@ object CrewEngine {
     }
 
     fun rosterCount(crew: CrewState): Int = crew.members.values.count { it.status !in setOf(CrewStatus.DEAD, CrewStatus.DESERTED) }
+
+    private val HUMAN_PLAYER_IDS = setOf("p1", "p2", "p3", "p4")
 }
