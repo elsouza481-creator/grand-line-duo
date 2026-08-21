@@ -31,10 +31,8 @@ object TrainingDuelEngine {
     private const val CHALLENGER = "${PREFIX}challenger"
     private const val OPPONENT = "${PREFIX}opponent"
     private const val ROUND = "${PREFIX}round"
-    private const val HP_P1 = "${PREFIX}hp.p1"
-    private const val HP_P2 = "${PREFIX}hp.p2"
-    private const val ACTION_P1 = "${PREFIX}action.p1"
-    private const val ACTION_P2 = "${PREFIX}action.p2"
+    private const val HP_PREFIX = "${PREFIX}hp."
+    private const val ACTION_PREFIX = "${PREFIX}action."
     private const val LAST_WINNER = "duel.last.winner"
     private const val LAST_ROUND = "duel.last.round"
 
@@ -43,30 +41,38 @@ object TrainingDuelEngine {
         val challenger = world.worldFlags[CHALLENGER] ?: return null
         val opponent = world.worldFlags[OPPONENT] ?: return null
         val round = world.worldFlags[ROUND]?.toIntOrNull() ?: 0
+        val participants = linkedSetOf(challenger, opponent)
         val hp = buildMap {
-            world.worldFlags[HP_P1]?.toIntOrNull()?.let { put("p1", it) }
-            world.worldFlags[HP_P2]?.toIntOrNull()?.let { put("p2", it) }
+            participants.forEach { playerId ->
+                world.worldFlags[hpKey(playerId)]?.toIntOrNull()?.let { put(playerId, it) }
+            }
         }
         val actions = buildMap {
-            world.worldFlags[ACTION_P1]?.let { put("p1", TrainingDuelAction.valueOf(it)) }
-            world.worldFlags[ACTION_P2]?.let { put("p2", TrainingDuelAction.valueOf(it)) }
+            participants.forEach { playerId ->
+                world.worldFlags[actionKey(playerId)]?.let {
+                    put(playerId, TrainingDuelAction.valueOf(it))
+                }
+            }
         }
         return TrainingDuelState(status, challenger, opponent, round, hp, actions)
     }
 
     fun lastWinner(world: WorldState): String? = world.worldFlags[LAST_WINNER]
 
-    fun challenge(world: WorldState, actorId: String): WorldState {
+    fun challenge(world: WorldState, actorId: String): WorldState =
+        challenge(world, actorId, legacyOpponent(actorId))
+
+    fun challenge(world: WorldState, actorId: String, opponentId: String): WorldState {
         requireHuman(world, actorId)
+        requireHuman(world, opponentId)
+        require(actorId != opponentId) { "A player cannot challenge themselves" }
         require(state(world) == null) { "A training duel is already pending or active" }
-        val opponent = other(actorId)
-        requireHuman(world, opponent)
-        requireBothAtTraining(world, actorId, opponent)
+        requireBothAtTraining(world, actorId, opponentId)
         return world.copy(
             worldFlags = world.worldFlags + mapOf(
                 STATUS to TrainingDuelStatus.CHALLENGED.name,
                 CHALLENGER to actorId,
-                OPPONENT to opponent,
+                OPPONENT to opponentId,
             ),
         )
     }
@@ -76,15 +82,15 @@ object TrainingDuelEngine {
         require(duel.status == TrainingDuelStatus.CHALLENGED) { "Training duel is already active" }
         require(actorId == duel.opponentId) { "Only the challenged player can accept" }
         requireBothAtTraining(world, duel.challengerId, duel.opponentId)
-        val p1 = world.players.getValue("p1")
-        val p2 = world.players.getValue("p2")
+        val challenger = world.players.getValue(duel.challengerId)
+        val opponent = world.players.getValue(duel.opponentId)
         val flags = clearActions(world.worldFlags) + mapOf(
             STATUS to TrainingDuelStatus.ACTIVE.name,
             CHALLENGER to duel.challengerId,
             OPPONENT to duel.opponentId,
             ROUND to "1",
-            HP_P1 to p1.maxHp.toString(),
-            HP_P2 to p2.maxHp.toString(),
+            hpKey(duel.challengerId) to challenger.maxHp.toString(),
+            hpKey(duel.opponentId) to opponent.maxHp.toString(),
         )
         return world.copy(worldFlags = flags)
     }
@@ -106,12 +112,11 @@ object TrainingDuelEngine {
     fun submitAction(world: WorldState, actorId: String, action: TrainingDuelAction): WorldState {
         val duel = requireNotNull(state(world)) { "No active training duel" }
         require(duel.status == TrainingDuelStatus.ACTIVE) { "Training duel has not been accepted" }
-        require(actorId == duel.challengerId || actorId == duel.opponentId) { "Player is not part of this duel" }
+        require(actorId in participants(duel)) { "Player is not part of this duel" }
         requireBothAtTraining(world, duel.challengerId, duel.opponentId)
         require(actorId !in duel.lockedActions) { "Duel action already locked for this round" }
 
-        val actionKey = if (actorId == "p1") ACTION_P1 else ACTION_P2
-        val lockedWorld = world.copy(worldFlags = world.worldFlags + (actionKey to action.name))
+        val lockedWorld = world.copy(worldFlags = world.worldFlags + (actionKey(actorId) to action.name))
         val locked = requireNotNull(state(lockedWorld))
         if (locked.lockedActions.size < 2) return lockedWorld
         return resolveRound(lockedWorld, locked)
@@ -120,35 +125,37 @@ object TrainingDuelEngine {
     fun forfeit(world: WorldState, actorId: String): WorldState {
         val duel = requireNotNull(state(world)) { "No active training duel" }
         require(duel.status == TrainingDuelStatus.ACTIVE) { "Training duel has not started" }
-        require(actorId == duel.challengerId || actorId == duel.opponentId) { "Player is not part of this duel" }
-        return finish(world, other(actorId), duel.round)
+        require(actorId in participants(duel)) { "Player is not part of this duel" }
+        return finish(world, otherParticipant(duel, actorId), duel.round)
     }
 
     fun blocksWorldMovement(world: WorldState): Boolean = state(world) != null
 
     private fun resolveRound(world: WorldState, duel: TrainingDuelState): WorldState {
-        val p1Action = duel.lockedActions.getValue("p1")
-        val p2Action = duel.lockedActions.getValue("p2")
-        val p1Hp = duel.duelHp.getValue("p1")
-        val p2Hp = duel.duelHp.getValue("p2")
-        val damageToP1 = damage(world, "p2", "p1", p2Action, p1Action)
-        val damageToP2 = damage(world, "p1", "p2", p1Action, p2Action)
-        val nextP1 = (p1Hp - damageToP1).coerceAtLeast(0)
-        val nextP2 = (p2Hp - damageToP2).coerceAtLeast(0)
+        val challengerId = duel.challengerId
+        val opponentId = duel.opponentId
+        val challengerAction = duel.lockedActions.getValue(challengerId)
+        val opponentAction = duel.lockedActions.getValue(opponentId)
+        val challengerHp = duel.duelHp.getValue(challengerId)
+        val opponentHp = duel.duelHp.getValue(opponentId)
+        val damageToChallenger = damage(world, opponentId, challengerId, opponentAction, challengerAction)
+        val damageToOpponent = damage(world, challengerId, opponentId, challengerAction, opponentAction)
+        val nextChallenger = (challengerHp - damageToChallenger).coerceAtLeast(0)
+        val nextOpponent = (opponentHp - damageToOpponent).coerceAtLeast(0)
 
-        if (nextP1 == 0 || nextP2 == 0) {
+        if (nextChallenger == 0 || nextOpponent == 0) {
             val winner = when {
-                nextP1 == 0 && nextP2 == 0 -> "DRAW"
-                nextP1 == 0 -> "p2"
-                else -> "p1"
+                nextChallenger == 0 && nextOpponent == 0 -> "DRAW"
+                nextChallenger == 0 -> opponentId
+                else -> challengerId
             }
             return finish(world, winner, duel.round)
         }
 
         val nextFlags = clearActions(world.worldFlags) + mapOf(
             ROUND to (duel.round + 1).toString(),
-            HP_P1 to nextP1.toString(),
-            HP_P2 to nextP2.toString(),
+            hpKey(challengerId) to nextChallenger.toString(),
+            hpKey(opponentId) to nextOpponent.toString(),
         )
         return world.copy(worldFlags = nextFlags)
     }
@@ -177,7 +184,7 @@ object TrainingDuelEngine {
     )
 
     private fun clearActions(flags: Map<String, String>): Map<String, String> =
-        flags - ACTION_P1 - ACTION_P2
+        flags.filterKeys { !it.startsWith(ACTION_PREFIX) }
 
     private fun clearActive(flags: Map<String, String>): Map<String, String> =
         flags.filterKeys { !it.startsWith(PREFIX) }
@@ -192,13 +199,27 @@ object TrainingDuelEngine {
     }
 
     private fun requireHuman(world: WorldState, playerId: String) {
-        require(playerId == "p1" || playerId == "p2") { "Unknown duel player $playerId" }
+        require(playerId in HUMAN_PLAYER_IDS) { "Unknown duel player $playerId" }
         require(world.players.containsKey(playerId)) { "Duel player $playerId is not present" }
     }
 
-    private fun other(playerId: String): String = when (playerId) {
+    private fun participants(duel: TrainingDuelState): Set<String> =
+        setOf(duel.challengerId, duel.opponentId)
+
+    private fun otherParticipant(duel: TrainingDuelState, playerId: String): String = when (playerId) {
+        duel.challengerId -> duel.opponentId
+        duel.opponentId -> duel.challengerId
+        else -> throw IllegalArgumentException("Player is not part of this duel")
+    }
+
+    private fun legacyOpponent(playerId: String): String = when (playerId) {
         "p1" -> "p2"
         "p2" -> "p1"
-        else -> throw IllegalArgumentException("Unknown duel player $playerId")
+        else -> throw IllegalArgumentException("Four-player duel challenge requires an explicit opponent")
     }
+
+    private fun hpKey(playerId: String) = "$HP_PREFIX$playerId"
+    private fun actionKey(playerId: String) = "$ACTION_PREFIX$playerId"
+
+    private val HUMAN_PLAYER_IDS = setOf("p1", "p2", "p3", "p4")
 }
