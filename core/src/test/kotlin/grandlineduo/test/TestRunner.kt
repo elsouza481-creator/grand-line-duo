@@ -46,6 +46,7 @@ fun main() {
     grandlineduo.appshell.LanShellSessionCoordinatorTest.register()
     grandlineduo.sim.ConvergenceSimulationTest.register()
     grandlineduo.game.director.GrandLineDirectorTest.register()
+    grandlineduo.game.quest.QuestEngineTest.register()
     grandlineduo.game.arc.ArcEngineTest.register()
     grandlineduo.game.arc.ArcDirectorBridgeTest.register()
     grandlineduo.game.arc.ArcPersistenceTest.register()
