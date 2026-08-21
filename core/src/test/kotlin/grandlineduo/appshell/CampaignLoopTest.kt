@@ -43,7 +43,7 @@ object CampaignLoopTest {
                 assertEquals(ArcPhase.ARRIVAL, after.activeArc!!.phase)
                 assertEquals("emberwake", after.islandId)
             }
-
+        }
 
         test("solo campaign can reach the final epilogue through public gameplay APIs") {
             val root = Files.createTempDirectory("gld-full-campaign")
@@ -79,6 +79,7 @@ object CampaignLoopTest {
                             }
                             session.advanceCampaign()
                         }
+                        GameScreen.QUESTS -> error("Quest overlay is not part of the automatic campaign loop")
                         GameScreen.WAITING_FOR_PARTNER -> session.refresh()
                         GameScreen.END -> break
                         GameScreen.GAME_OVER -> error("Campaign became unwinnable at step $steps")
@@ -91,7 +92,6 @@ object CampaignLoopTest {
                 assertTrue(!final.worldFlags["campaign.epilogue"].isNullOrBlank())
                 assertTrue((final.worldFlags.keys.count { it.startsWith("reward.arc.") }) >= 5)
             }
-        }
         }
     }
 }
