@@ -64,6 +64,7 @@ fun main() {
     grandlineduo.game.scenario.StormglassCayScenarioTest.register()
     grandlineduo.game.combat.CombatEngineTest.register()
     grandlineduo.game.combat.CombatModifierResolverTest.register()
+    grandlineduo.game.duel.DuelEngineTest.register()
     grandlineduo.game.StormglassPersistenceAdapterTest.register()
     grandlineduo.game.VerticalSliceIntegrationTest.register()
     grandlineduo.game.InventoryEngineTest.register()
