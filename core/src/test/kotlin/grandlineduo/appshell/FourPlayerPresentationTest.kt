@@ -2,6 +2,8 @@ package grandlineduo.appshell
 
 import grandlineduo.core.model.PlayerState
 import grandlineduo.core.model.WorldState
+import grandlineduo.game.arc.ArcEngine
+import grandlineduo.game.arc.ArcStartContext
 import grandlineduo.game.character.CharacterCreation
 import grandlineduo.game.character.CharacterCreationResult
 import grandlineduo.game.character.CharacterProfile
@@ -43,7 +45,7 @@ object FourPlayerPresentationTest {
             assertTrue(presentation.status.any { it.contains("P3 Player 3") && it.contains("P4 Player 4") })
         }
 
-        test("P3 and P4 observe legacy two-player narrative instead of receiving invalid choices") {
+        test("P3 and P4 observe legacy two-player Stormglass narrative instead of receiving invalid choices") {
             val profiles = profiles(4)
             val world = WorldState(
                 campaignId = "present-four-observer",
@@ -58,6 +60,41 @@ object FourPlayerPresentationTest {
                 assertTrue(presentation.title.contains("Observando"))
                 assertTrue(presentation.body.contains("P1") && presentation.body.contains("P2"))
             }
+        }
+
+        test("P3 and P4 receive real decisions when the active narrative arc includes all four players") {
+            val profiles = profiles(4)
+            val participants = profiles.keys.toSortedSet()
+            val arc = ArcEngine.start(
+                ArcStartContext(
+                    seed = 91L,
+                    islandId = "stormglass-cay",
+                    presentFactions = setOf("MARINES"),
+                    worldFlags = emptySet(),
+                    totalBounty = 0L,
+                    participantIds = participants,
+                )
+            )
+            val world = WorldState(
+                campaignId = "present-four-arc",
+                islandId = "stormglass-cay",
+                players = players(profiles),
+                worldFlags = mapOf("sg.stage" to "COMPLETE"),
+                activeArc = arc,
+            )
+
+            listOf("p3", "p4").forEach { actorId ->
+                val presentation = GamePresenter.present(world, actorId)
+                assertEquals(GameScreen.ARC, presentation.screen)
+                assertTrue(presentation.actions.isNotEmpty())
+                assertTrue(presentation.actions.all { it.kind == "ARC" })
+            }
+
+            val afterP3 = ArcEngine.choose(arc, "p3", "shadow_authority").state
+            val waiting = GamePresenter.present(world.copy(activeArc = afterP3), "p3")
+            assertEquals(GameScreen.WAITING_FOR_PARTNER, waiting.screen)
+            assertTrue(waiting.actions.isEmpty())
+            assertTrue(waiting.body.contains("Aguardando"))
         }
     }
 
