@@ -70,6 +70,24 @@ object TrainingDuelPresentationTest {
             assertTrue(activeObserver.actions.none { it.kind.startsWith("DUEL_") })
         }
 
+        test("training arena exposes the local persistent duel record only while physically present") {
+            var world = fourPlayerWorld("duel-present-record").copy(
+                worldFlags = fourPlayerWorld("duel-present-record").worldFlags + mapOf(
+                    "duel.record.p3.wins" to "3",
+                    "duel.record.p3.losses" to "2",
+                    "duel.record.p3.draws" to "1",
+                    "duel.record.p3.forfeits" to "1",
+                )
+            )
+
+            val away = GamePresenter.present(world, "p3")
+            assertEquals(null, away.exploration?.arenaRecord)
+
+            world = ExplorationEngine.place(world, "p3", trainingPosition(world))
+            val atArena = GamePresenter.present(world, "p3")
+            assertEquals("Arena • 3V • 2D • 1E • 1 desistência", atArena.exploration?.arenaRecord)
+        }
+
         test("challenged player can accept or decline while challenger can cancel in the arena") {
             var world = world("duel-present-challenge")
             val training = trainingPosition(world)
