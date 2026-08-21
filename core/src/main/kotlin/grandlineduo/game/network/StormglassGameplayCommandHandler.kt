@@ -22,10 +22,13 @@ import grandlineduo.game.character.ProgressionEngine
 import grandlineduo.game.character.ProgressionResult
 import grandlineduo.game.character.Attribute
 import grandlineduo.game.character.Skill
+import grandlineduo.game.director.DirectorDifficulty
 import grandlineduo.game.scenario.ScenarioStage
 import grandlineduo.game.crew.CrewEngine
 import grandlineduo.game.crew.CrewRecruitmentCatalog
 import grandlineduo.game.crew.CrewRole
+import grandlineduo.game.quest.QuestDirectorBridge
+import grandlineduo.game.quest.QuestEngine
 import grandlineduo.game.scenario.StormglassCayScenario
 import grandlineduo.game.powers.PowerTechniqueEngine
 import grandlineduo.game.powers.PowerDiscoveryEngine
@@ -82,6 +85,9 @@ class StormglassGameplayCommandHandler(
         if (command is GameplayWireCommand.PowerAction) {
             return applyPowerAction(before, command, fingerprint, hostTimestamp)
         }
+        if (command is GameplayWireCommand.QuestAction) {
+            return applyQuestAction(before, command, fingerprint, hostTimestamp)
+        }
         if (command is GameplayWireCommand.CombatAction && before.activeCombat != null) {
             val type = try {
                 CombatActionType.valueOf(command.actionType)
@@ -107,6 +113,7 @@ class StormglassGameplayCommandHandler(
             is GameplayWireCommand.InventoryAction -> error("handled above")
             is GameplayWireCommand.WorldAction -> error("handled above")
             is GameplayWireCommand.PowerAction -> error("handled above")
+            is GameplayWireCommand.QuestAction -> error("handled above")
         }
         val nextWorld = StormglassPersistenceAdapter.encode(before, transition.scenario, transition.combat)
         val result = hostReplica.submit(
@@ -192,6 +199,53 @@ class StormglassGameplayCommandHandler(
                 metadata = mapOf(
                     "meta.inventoryAction" to command.actionType.uppercase(),
                     "meta.inventoryTarget" to command.target,
+                ),
+            ),
+            hostTimestamp,
+        )
+        persist(result.event)
+        return result.event
+    }
+
+    private fun applyQuestAction(
+        before: grandlineduo.core.model.WorldState,
+        command: GameplayWireCommand.QuestAction,
+        fingerprint: String,
+        hostTimestamp: Long,
+    ): CampaignEvent {
+        require(before.activeCombat == null && StormglassPersistenceAdapter.decode(before).combat == null) {
+            "Quest management is unavailable during combat"
+        }
+        require(before.activeVoyage == null) { "Quest management is unavailable during a voyage incident" }
+        val action = command.actionType.uppercase()
+        val nextWorld = when (action) {
+            "REFRESH" -> {
+                require(command.questId.isBlank()) { "Quest refresh cannot target a quest" }
+                QuestDirectorBridge.refresh(
+                    world = before,
+                    seed = seed,
+                    difficulty = DirectorDifficulty.NORMAL,
+                    presentFactions = (
+                        before.socialState.factionStanding.keys +
+                            setOf("CIVILIANS", "MARINES", "UNDERWORLD")
+                    ).toSet(),
+                )
+            }
+            "ACCEPT" -> QuestEngine.accept(before, command.questId, command.actorId)
+            "PROGRESS" -> QuestEngine.progress(before, command.questId, command.amount)
+            "TURN_IN" -> QuestEngine.turnIn(before, command.questId)
+            "FAIL" -> QuestEngine.fail(before, command.questId, "abandoned by ${command.actorId}")
+            else -> throw IllegalArgumentException("Unknown quest action ${command.actionType}")
+        }
+        val result = hostReplica.submit(
+            ReplaceWorldStateCommand(
+                commandId = command.commandId,
+                actorId = command.actorId,
+                nextState = nextWorld,
+                sourceFingerprint = fingerprint,
+                metadata = mapOf(
+                    "meta.questAction" to action,
+                    "meta.questId" to command.questId,
                 ),
             ),
             hostTimestamp,
