@@ -573,7 +573,14 @@ class GameSessionCoordinator(private val saveRoot: Path? = null) : Closeable {
                     else -> "kairouseki_shard"
                 }
                 var rewarded = grandlineduo.game.InventoryEngine.grant(world, "p1", loot, 1)
-                rewarded = grandlineduo.game.InventoryEngine.grant(rewarded, "p2", "ration", 2)
+                world.players.values
+                    .asSequence()
+                    .filter { it.profile != null && it.playerId != "p1" && it.playerId in HUMAN_PLAYER_IDS }
+                    .map { it.playerId }
+                    .sorted()
+                    .forEach { playerId ->
+                        rewarded = grandlineduo.game.InventoryEngine.grant(rewarded, playerId, "ration", 2)
+                    }
                 rewarded = awardPartyEvolutionPoints(rewarded, 2 + chapter.coerceAtMost(3))
                 var rewardFlags = rewarded.worldFlags + (rewardKey to "true")
                 val fruitDiscovery = PowerDiscoveryEngine.fruitDiscovery(campaignSeed(rewarded.campaignId))
