@@ -31,6 +31,9 @@ object QuestEngine {
         require(amount > 0) { "Quest progress amount must be positive" }
         val current = world.questBoard.active[questId]
             ?: throw IllegalArgumentException("Quest is not active: $questId")
+        require(current.definition.type != QuestType.BOSS) {
+            "Boss contracts progress only through boss victory"
+        }
         require(current.status == QuestStatus.ACTIVE || current.status == QuestStatus.READY_TO_TURN_IN) {
             "Quest cannot progress from ${current.status}"
         }
@@ -43,6 +46,22 @@ object QuestEngine {
             QuestStatus.ACTIVE
         }
         val updated = current.copy(progress = nextProgress, status = nextStatus)
+        return world.copy(
+            questBoard = world.questBoard.copy(
+                active = world.questBoard.active + (questId to updated),
+            ),
+        )
+    }
+
+    fun completeBossObjective(world: WorldState, questId: String): WorldState {
+        val current = world.questBoard.active[questId]
+            ?: throw IllegalArgumentException("Quest is not active: $questId")
+        require(current.definition.type == QuestType.BOSS) { "Quest is not a boss contract" }
+        require(current.status == QuestStatus.ACTIVE) { "Boss quest cannot complete from ${current.status}" }
+        val updated = current.copy(
+            progress = current.definition.requiredAmount,
+            status = QuestStatus.READY_TO_TURN_IN,
+        )
         return world.copy(
             questBoard = world.questBoard.copy(
                 active = world.questBoard.active + (questId to updated),
