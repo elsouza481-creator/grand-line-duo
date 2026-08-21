@@ -8,6 +8,7 @@ import grandlineduo.game.pvp.TrainingDuelAction
 import grandlineduo.game.pvp.TrainingDuelEngine
 import grandlineduo.game.world.ExplorationEngine
 import grandlineduo.game.world.ExplorationInteraction
+import grandlineduo.game.world.GridPosition
 import grandlineduo.test.assertEquals
 import grandlineduo.test.assertTrue
 import grandlineduo.test.test
@@ -68,6 +69,26 @@ object TrainingDuelPresentationTest {
                 activeP4.actions.filter { it.kind == "DUEL_ACTION" }.map { it.id }.toSet(),
             )
             assertTrue(activeObserver.actions.none { it.kind.startsWith("DUEL_") })
+        }
+
+        test("adjacent party member is offered field sparring and the HUD labels it separately from arena duel") {
+            var world = fourPlayerWorld("duel-present-field")
+            val spawn = ExplorationEngine.mapFor(world.campaignId, world.islandId).spawn
+            world = ExplorationEngine.place(world, "p3", spawn)
+            world = ExplorationEngine.place(world, "p4", GridPosition(spawn.x + 1, spawn.y))
+
+            val available = GamePresenter.present(world, "p3")
+            val spar = available.actions.single { it.kind == "DUEL_FIELD_CHALLENGE" }
+            assertEquals("p4", spar.id)
+            assertTrue("sparring" in spar.label.lowercase())
+            assertEquals(null, available.exploration?.arenaRecord)
+
+            world = TrainingDuelEngine.challengeAdjacent(world, "p3", "p4")
+            val challenger = GamePresenter.present(world, "p3")
+            val opponent = GamePresenter.present(world, "p4")
+            assertTrue("sparring" in challenger.body.lowercase())
+            assertTrue("sparring" in opponent.body.lowercase())
+            assertTrue("duelo de treino" !in challenger.body.lowercase())
         }
 
         test("training arena exposes the local persistent duel record only while physically present") {
