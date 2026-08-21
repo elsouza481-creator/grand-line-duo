@@ -37,5 +37,29 @@ object ExplorationViewportTest {
             assertEquals(map.tileAt(market), playerCell.tile)
             assertEquals(ExplorationInteraction.MARKET, playerCell.interaction)
         }
+
+        test("viewport projects all four party members while centering the local player") {
+            val map = ExplorationEngine.mapFor("viewport-party", "gearfall")
+            val positions = mapOf(
+                "p1" to map.spawn,
+                "p2" to GridPosition(map.spawn.x - 1, map.spawn.y),
+                "p3" to GridPosition(map.spawn.x, map.spawn.y - 1),
+                "p4" to GridPosition(map.spawn.x + 1, map.spawn.y),
+            )
+            val viewport = ExplorationViewport.build(
+                map = map,
+                playerPosition = positions.getValue("p3"),
+                playerPositions = positions,
+                width = 11,
+                height = 9,
+            )
+
+            positions.forEach { (playerId, position) ->
+                val cell = viewport.cells.single { it.position == position }
+                assertTrue(playerId in cell.playerIds)
+            }
+            assertTrue(viewport.cells.single { it.position == positions.getValue("p3") }.isPlayer)
+            assertEquals(positions, viewport.playerPositions)
+        }
     }
 }
