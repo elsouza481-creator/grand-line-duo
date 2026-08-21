@@ -2,6 +2,7 @@ package grandlineduo.game.quest
 
 import grandlineduo.core.model.PlayerState
 import grandlineduo.core.model.WorldState
+import grandlineduo.core.network.GameplayWireCommand
 import grandlineduo.core.network.HostReplica
 import grandlineduo.game.InventoryEngine
 import grandlineduo.game.combat.CombatActionType
@@ -9,6 +10,7 @@ import grandlineduo.game.combat.CombatStatus
 import grandlineduo.game.combat.Combatant
 import grandlineduo.game.combat.EnemyAttackType
 import grandlineduo.game.combat.EnemyTelegraph
+import grandlineduo.game.network.StormglassGameplayCommandHandler
 import grandlineduo.test.assertEquals
 import grandlineduo.test.assertTrue
 import grandlineduo.test.test
@@ -115,6 +117,38 @@ object QuestBossCoordinatorTest {
             equipped = InventoryEngine.equip(equipped, "p1", "iron_sabre")
 
             assertEquals(damage(base, 86L) + 4, damage(equipped, 86L))
+        }
+
+        test("gameplay handler starts boss contract and routes quest combat") {
+            val quest = bossQuest("quest-handler-start")
+            val host = HostReplica(activeWorld("handler-start", quest))
+            val handler = StormglassGameplayCommandHandler(host, seed = 87L)
+
+            handler.handle(
+                GameplayWireCommand.QuestAction("handler-start-boss", "p2", "START_BOSS", quest.questId),
+                7_000,
+            )
+            assertEquals(quest.questId, host.state.worldFlags[QuestBossCoordinator.ACTIVE_QUEST_FLAG])
+
+            handler.handle(
+                GameplayWireCommand.CombatAction("handler-lock-p1", "p1", CombatActionType.SETUP.name),
+                7_001,
+            )
+            assertEquals(CombatActionType.SETUP, host.state.activeCombat!!.lockedActions.getValue("p1").type)
+        }
+
+        test("gameplay handler routes bound quest boss combat without an active arc") {
+            val quest = bossQuest("quest-handler-bound")
+            val host = HostReplica(boundWorld("handler-bound", quest, 88L))
+            val handler = StormglassGameplayCommandHandler(host, seed = 88L)
+
+            handler.handle(
+                GameplayWireCommand.CombatAction("handler-bound-p1", "p1", CombatActionType.SETUP.name),
+                8_000,
+            )
+
+            assertEquals(CombatActionType.SETUP, host.state.activeCombat!!.lockedActions.getValue("p1").type)
+            assertEquals(quest.questId, host.state.worldFlags[QuestBossCoordinator.ACTIVE_QUEST_FLAG])
         }
     }
 
