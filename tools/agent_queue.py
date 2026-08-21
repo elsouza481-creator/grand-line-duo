@@ -10,10 +10,10 @@ import unicodedata
 from typing import Any
 
 READY_LABEL = "agent:ready"
-REQUIRED_SECTIONS = (
-    "## Desired outcome",
-    "## Acceptance criteria",
-    "## Constraints",
+REQUIRED_SECTION_NAMES = (
+    "Desired outcome",
+    "Acceptance criteria",
+    "Constraints",
 )
 
 
@@ -28,7 +28,7 @@ def _label_names(issue: dict[str, Any]) -> set[str]:
 
 
 def select_issue(issues: list[dict[str, Any]]) -> dict[str, Any] | None:
-    """Return the lowest-number open queue item carrying agent:ready."""
+    """Return the lowest-number queue item carrying agent:ready."""
     eligible = [issue for issue in issues if READY_LABEL in _label_names(issue)]
     if not eligible:
         return None
@@ -39,10 +39,10 @@ def validate_issue(issue: dict[str, Any]) -> list[str]:
     """Return deterministic validation errors for an autonomous task Issue."""
     body = issue.get("body") or ""
     errors: list[str] = []
-    for section in REQUIRED_SECTIONS:
-        pattern = rf"(?im)^{re.escape(section)}\s*$"
+    for section_name in REQUIRED_SECTION_NAMES:
+        pattern = rf"(?im)^#{{2,3}}\s+{re.escape(section_name)}\s*$"
         if re.search(pattern, body) is None:
-            errors.append(f"missing required section: {section}")
+            errors.append(f"missing required section: ## {section_name}")
     return errors
 
 
