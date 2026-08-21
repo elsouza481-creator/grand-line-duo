@@ -102,6 +102,40 @@ object TrainingDuelEngineTest {
             assertEquals(16, world.players.getValue("p1").hp)
             assertEquals(8, world.players.getValue("p2").hp)
         }
+
+        test("arena record tracks wins losses and forfeits without gameplay rewards") {
+            var world = fourPlayerWorld("duel-record-forfeit").copy(partyBerries = 7_500)
+            val training = trainingPosition(world)
+            world = ExplorationEngine.place(world, "p3", training)
+            world = ExplorationEngine.place(world, "p4", training)
+            val berriesBefore = world.partyBerries
+            val p3HpBefore = world.players.getValue("p3").hp
+            val p4HpBefore = world.players.getValue("p4").hp
+
+            world = TrainingDuelEngine.accept(TrainingDuelEngine.challenge(world, "p3", "p4"), "p4")
+            world = TrainingDuelEngine.forfeit(world, "p4")
+
+            assertEquals(TrainingDuelRecord(wins = 1), TrainingDuelEngine.record(world, "p3"))
+            assertEquals(TrainingDuelRecord(losses = 1, forfeits = 1), TrainingDuelEngine.record(world, "p4"))
+            assertEquals(TrainingDuelRecord(), TrainingDuelEngine.record(world, "p1"))
+            assertEquals(berriesBefore, world.partyBerries)
+            assertEquals(p3HpBefore, world.players.getValue("p3").hp)
+            assertEquals(p4HpBefore, world.players.getValue("p4").hp)
+        }
+
+        test("simultaneous knockout records one draw for both duelists") {
+            var world = world("duel-record-draw", p1Hp = 8, p2Hp = 8)
+            val training = trainingPosition(world)
+            world = ExplorationEngine.place(world, "p1", training)
+            world = ExplorationEngine.place(world, "p2", training)
+            world = TrainingDuelEngine.accept(TrainingDuelEngine.challenge(world, "p1"), "p2")
+            world = TrainingDuelEngine.submitAction(world, "p1", TrainingDuelAction.ATTACK)
+            world = TrainingDuelEngine.submitAction(world, "p2", TrainingDuelAction.ATTACK)
+
+            assertEquals("DRAW", TrainingDuelEngine.lastWinner(world))
+            assertEquals(TrainingDuelRecord(draws = 1), TrainingDuelEngine.record(world, "p1"))
+            assertEquals(TrainingDuelRecord(draws = 1), TrainingDuelEngine.record(world, "p2"))
+        }
     }
 
     private fun activeDuel(id: String): WorldState {
