@@ -440,7 +440,7 @@ object WorldStateCodec {
         val status = CombatStatus.valueOf(data.readUTF())
 
         val playerCount = data.readInt()
-        require(playerCount in 0..2) { "Invalid combat player count" }
+        require(playerCount in 0..4) { "Invalid combat player count" }
         val players = linkedMapOf<String, Combatant>()
         repeat(playerCount) {
             val key = data.readUTF()
@@ -470,7 +470,7 @@ object WorldStateCodec {
         )
 
         val actionCount = data.readInt()
-        require(actionCount in 0..2) { "Invalid combat action count" }
+        require(actionCount in 0..4) { "Invalid combat action count" }
         val actions = linkedMapOf<String, CombatAction>()
         repeat(actionCount) {
             val key = data.readUTF()
