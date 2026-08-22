@@ -211,7 +211,7 @@ class MainActivity : Activity() {
                     onBack = { closeOverlay() }
                     onWorldAction = { action, target, amount -> runWorldActionOverlay("CREW", action, target, amount) }
                 }
-                view.render(world, coordinator.actorId)
+                view.render(world)
                 setContentView(view)
             }
             "TRAINING" -> {
