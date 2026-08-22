@@ -56,6 +56,7 @@ data class QuestObjectiveEvent(
     val targetId: String,
     val islandId: String,
     val amount: Int = 1,
+    val sourceQuestId: String? = null,
 )
 ```
 
@@ -63,6 +64,7 @@ Rules:
 
 - `targetId` and `islandId` must be non-blank.
 - `amount` must be positive.
+- `sourceQuestId`, when present, must be non-blank.
 - The event itself is transient and is **not persisted** in `WorldState`.
 - Persistence comes from the resulting quest-board mutation inside the same authoritative command commit.
 - Events are created only from successfully resolved host-authoritative outcomes.
@@ -78,11 +80,16 @@ quest.type == HUNT
 quest.definition.islandId == event.islandId
 quest.definition.targetId == event.targetId
 event.type == ENEMY_DEFEATED
+sourceQuestId == null OR quest.definition.questId == sourceQuestId
 ```
 
 Matching HUNT quests receive `QuestEngine.progress(world, questId, event.amount)`.
 
-The router must not advance BOSS quests, READY_TO_TURN_IN quests, failed/completed quests, quests on another island, or targets with only partial/string-similar ids.
+HUNT encounters created by `QuestHuntCoordinator` **always set `sourceQuestId` to the bound HUNT quest id**. This prevents defeating one contract-specific `dock-raiders` encounter from accidentally advancing another active contract that happens to use the same `targetId`.
+
+A future ambient/world ENEMY_DEFEATED integration may intentionally omit `sourceQuestId` so all semantically matching active contracts can react, but that behavior is outside this slice and must get its own tests before use.
+
+The router must not advance BOSS quests, READY_TO_TURN_IN quests, failed/completed quests, quests on another island, source-quest mismatches, or targets with only partial/string-similar ids.
 
 Future event types are reserved by the foundation but must be no-ops until their dedicated gameplay integration is implemented and tested.
 
@@ -93,15 +100,33 @@ A HUNT contract remains accepted through the existing `ACCEPT` path.
 For an ACTIVE HUNT contract:
 
 1. Player selects `START_HUNT` (`Rastrear e enfrentar alvo`).
-2. `QuestHuntCoordinator.start(...)` validates the contract and creates one deterministic encounter.
+2. `QuestHuntCoordinator.start(...)` validates the contract and that the world is currently in a hub-compatible state, then creates one deterministic encounter.
 3. Existing P1/P2 combat actions and power actions resolve through the existing `CombatEngine`.
-4. On VICTORY, the coordinator creates one `ENEMY_DEFEATED` objective event for the contract target.
+4. On VICTORY, the coordinator creates one `ENEMY_DEFEATED` objective event for the contract target with `sourceQuestId = questId`.
 5. `QuestObjectiveRouter` applies the rarity-scaled amount atomically in the same authoritative world-state commit.
 6. If progress is still below the requirement, combat clears and the HUNT remains ACTIVE; UI exposes `START_HUNT` again as `Continuar caçada`.
 7. When progress reaches the required amount, status becomes `READY_TO_TURN_IN`; rewards still require explicit existing `TURN_IN`.
 8. On DEFEAT, the HUNT permanently fails with reason metadata `HUNT_DEFEAT`; no reward is granted.
 
 Manual `PROGRESS` for HUNT is rejected at the domain/handler boundary once this feature is active.
+
+## Hub-Compatible Start Rule
+
+`START_HUNT` is host-validated even if a modified client forges the command outside the quest screen.
+
+A HUNT may start only when all of these are true:
+
+- both P1/P2 player records exist and both characters have completed profiles;
+- both players have positive HP;
+- `activeCombat == null`;
+- legacy scenario combat is null;
+- `activeVoyage == null`;
+- `activeDuel == null`;
+- no HUNT/BOSS combat binding exists;
+- if `activeArc != null`, its phase is `COMPLETE`;
+- if there is no active arc, the restored scenario stage is `COMPLETE`.
+
+This mirrors what the official presenter treats as a hub instead of trusting UI reachability as an authorization rule.
 
 ## Three-Encounter Progression Model
 
@@ -131,7 +156,7 @@ The router clamps through existing `QuestEngine.progress(...)`, so a victory can
 
 ## Deterministic HUNT Combat Factory
 
-`QuestHuntFactory.create(world, quest, campaignSeed)` is pure and deterministic.
+`QuestHuntFactory.create(world, questProgress, campaignSeed)` is pure and deterministic.
 
 Validation:
 
@@ -155,7 +180,8 @@ LEGENDARY  135 HP / 18 ATK
 The encounter ordinal is derived from current progress and per-win amount:
 
 ```kotlin
-val encounterIndex = quest.progress / progressPerVictory(quest.definition.rarity) + 1
+val encounterIndex = questProgress.progress /
+    progressPerVictory(questProgress.definition.rarity) + 1
 ```
 
 For generated quests this produces indexes 1, 2, and 3.
@@ -204,9 +230,9 @@ Rules:
 
 - the binding exists only while a HUNT `activeCombat` is running;
 - `start` rejects if `activeCombat` or `activeVoyage` already exists;
-- start rejects if another HUNT binding already exists;
+- start rejects if another HUNT or BOSS binding already exists;
 - a HUNT binding with no valid active HUNT quest is considered invalid and commands reject instead of falling back to arc/scenario combat;
-- VICTORY clears `activeCombat` and the binding before/while applying the objective event in the same committed state;
+- VICTORY clears `activeCombat` and the binding while applying the objective event in the same committed state;
 - DEFEAT keeps the terminal defeat combat state consistent with existing hardcore PvE behavior, removes the HUNT binding, and moves the quest to failed history;
 - no snapshot version bump is required because `worldFlags` is already persisted and hashed.
 
@@ -247,7 +273,7 @@ submitPreparedAction(
 
 Responsibilities:
 
-- validate HUNT start and origin binding;
+- validate HUNT start, hub compatibility, and origin binding;
 - create deterministic HUNT combat;
 - route ordinary combat actions through existing `CombatEngine`;
 - route prepared Haki/Akuma no Mi actions through existing `PowerTechniqueEngine.prepare(...)` contract;
@@ -273,23 +299,24 @@ It does **not** own quest rewards, inventory acquisition logic, Director generat
 
 When `activeCombat != null`:
 
-1. if `quest.hunt.active` exists -> `QuestHuntCoordinator.submitAction`;
-2. else if `quest.boss.active` exists -> `QuestBossCoordinator.submitAction`;
-3. else -> existing arc/scenario route.
-
-If both HUNT and BOSS bindings are present, reject as invalid state.
+1. reject immediately if both `quest.hunt.active` and `quest.boss.active` exist;
+2. if `quest.hunt.active` exists -> `QuestHuntCoordinator.submitAction`;
+3. else if `quest.boss.active` exists -> `QuestBossCoordinator.submitAction`;
+4. else -> existing arc/scenario route.
 
 ### PowerAction
 
-Continue to call `PowerTechniqueEngine.prepare(...)` first.
+Continue to call `PowerTechniqueEngine.prepare(...)` first, preserving the existing duel check before PvE combat source routing.
 
-If prepared world has HUNT binding + active combat:
+After prepare:
 
-- call `QuestHuntCoordinator.submitPreparedAction(...)`;
-- energy cost and mastery/use counters are committed exactly once with the combat action;
-- duplicate/retried command ids cannot double-consume energy.
+1. active duel -> existing `DuelCoordinator` path;
+2. reject if both HUNT and BOSS bindings exist;
+3. HUNT binding + active combat -> `QuestHuntCoordinator.submitPreparedAction(...)`;
+4. BOSS binding + active combat -> existing `QuestBossCoordinator.submitPreparedAction(...)`;
+5. otherwise -> existing arc/scenario power route.
 
-Otherwise preserve existing duel -> quest boss -> arc/scenario routing semantics.
+For HUNT, energy cost and mastery/use counters are committed exactly once with the combat action; duplicate/retried command ids cannot double-consume energy.
 
 ## HP, Energy, Rewards, and Hardcore Consequences
 
@@ -361,6 +388,7 @@ Victory:
 
 ```text
 meta.questObjective=ENEMY_DEFEATED
+meta.questObjectiveSourceQuest=<questId>
 meta.questObjectiveTarget=<targetId>
 meta.questObjectiveAmount=<rarity amount>
 meta.questProgress=<new progress>
@@ -379,9 +407,11 @@ Reject without mutation when:
 - `START_HUNT` targets a non-HUNT quest;
 - quest is not ACTIVE;
 - quest belongs to another island;
+- either character profile is incomplete or either player has no positive HP;
+- command is forged outside the hub-compatible state defined above;
 - active PvE combat already exists;
-- voyage is active;
-- another HUNT binding exists;
+- voyage or duel is active;
+- another HUNT or BOSS binding exists;
 - HUNT binding references a missing/non-HUNT/inactive quest;
 - both HUNT and BOSS bindings exist;
 - manual `PROGRESS` targets HUNT;
@@ -411,14 +441,16 @@ Crash recovery must reproduce the same locked HUNT round, origin binding, HP, en
 
 Cover:
 
-- matching ENEMY_DEFEATED increments HUNT;
+- matching ENEMY_DEFEATED increments the bound HUNT;
+- same target on a different active quest does **not** progress when `sourceQuestId` points to one contract;
+- wrong sourceQuestId does nothing;
 - wrong target does nothing;
 - wrong island does nothing;
 - non-HUNT does nothing;
 - READY_TO_TURN_IN does not advance;
 - amount clamps at required amount;
 - future event types are no-op in this slice;
-- deterministic ordering when multiple HUNT quests exist.
+- deterministic ordering for the future `sourceQuestId == null` multi-match path.
 
 ### 2. QuestHuntFactoryTest
 
@@ -435,14 +467,16 @@ Cover:
 
 Cover:
 
-- valid HUNT starts combat + binding;
+- valid HUNT starts combat + binding from hub;
+- forged start outside hub rejects;
 - non-HUNT rejects;
 - wrong island/status rejects;
-- incompatible combat/voyage rejects;
+- incomplete/dead character rejects;
+- incompatible combat/voyage/duel rejects;
 - ordinary action locks/resolves;
 - equipment modifiers apply;
 - prepared Haki/Akuma power spends energy/use exactly once;
-- victory clears combat/binding and increments exact rarity amount;
+- victory clears combat/binding and increments exact rarity amount only on the bound contract;
 - first/second victory remains ACTIVE;
 - third generated victory becomes READY_TO_TURN_IN;
 - no reward on victory;
@@ -469,14 +503,14 @@ Cover:
 
 One full integration test must execute:
 
-1. HOST_COOP with active HUNT and known HP/energy/rewards.
+1. HOST_COOP in a hub-compatible state with active HUNT and known HP/energy/rewards.
 2. P2 starts or participates in HUNT over real TCP.
 3. P1 locks an action.
 4. P2 disconnects before round resolution.
 5. Fresh client replica starts from its last persisted snapshot.
 6. Reconnect restores combat, binding, locks, HP, quest progress, and canonical hash.
 7. Fight resolves to victory.
-8. Host/client converge and exact rarity progress is applied once.
+8. Host/client converge and exact rarity progress is applied once to the bound quest only.
 9. Repeat encounters until READY_TO_TURN_IN.
 10. TURN_IN grants reward exactly once.
 11. Duplicate command retry does not duplicate progress, energy use, or reward.
