@@ -50,6 +50,7 @@ fun main() {
     grandlineduo.game.quest.QuestObjectiveRouterTest.register()
     grandlineduo.game.quest.QuestHuntFactoryTest.register()
     grandlineduo.game.quest.QuestHuntCoordinatorTest.register()
+    grandlineduo.game.quest.QuestHuntRoutingTest.register()
     grandlineduo.game.quest.QuestDirectorBridgeTest.register()
     grandlineduo.game.quest.QuestPersistenceTest.register()
     grandlineduo.game.quest.QuestLanIntegrationTest.register()
