@@ -80,6 +80,7 @@ object CampaignLoopTest {
                                     )
                                 }
                             }
+                            GameScreen.DUEL -> error("PvP duel is not part of the solo campaign loop")
                             GameScreen.VOYAGE -> session.submitVoyageAction(VoyageAction.HELM)
                             GameScreen.HUB -> {
                                 var current = session.worldState()
