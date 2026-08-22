@@ -32,6 +32,7 @@ import grandlineduo.game.crew.CrewRole
 import grandlineduo.game.quest.QuestDirectorBridge
 import grandlineduo.game.quest.QuestEngine
 import grandlineduo.game.quest.QuestBossCoordinator
+import grandlineduo.game.quest.QuestHuntCoordinator
 import grandlineduo.game.scenario.StormglassCayScenario
 import grandlineduo.game.powers.PowerTechniqueEngine
 import grandlineduo.game.powers.PowerDiscoveryEngine
@@ -64,6 +65,12 @@ class StormglassGameplayCommandHandler(
         snapshotStore = snapshotStore,
         durableStore = durableStore,
     )
+    private val questHuntCoordinator = QuestHuntCoordinator(
+        hostReplica = hostReplica,
+        campaignSeed = seed,
+        snapshotStore = snapshotStore,
+        durableStore = durableStore,
+    )
     private val duelCoordinator = DuelCoordinator(
         hostReplica = hostReplica,
         campaignSeed = seed,
@@ -75,11 +82,22 @@ class StormglassGameplayCommandHandler(
     override fun handle(command: GameplayWireCommand, hostTimestamp: Long): CampaignEvent {
         val fingerprint = command.fingerprint()
         val beforeExistingCheck = hostReplica.state
+        val existingEvent = hostReplica.events.firstOrNull { it.commandId == command.commandId }
+        val existingFingerprint = existingEvent?.commandFingerprint.orEmpty()
         val coordinatorOwnsFingerprint =
             command is GameplayWireCommand.DuelAction ||
-                (command is GameplayWireCommand.CombatAction && beforeExistingCheck.activeDuel != null)
+                (command is GameplayWireCommand.QuestAction &&
+                    (command.actionType.equals("START_BOSS", ignoreCase = true) ||
+                        command.actionType.equals("START_HUNT", ignoreCase = true))) ||
+                (command is GameplayWireCommand.CombatAction && (
+                    beforeExistingCheck.activeDuel != null ||
+                        beforeExistingCheck.worldFlags[QuestHuntCoordinator.ACTIVE_QUEST_FLAG] != null ||
+                        beforeExistingCheck.worldFlags[QuestBossCoordinator.ACTIVE_QUEST_FLAG] != null ||
+                        existingFingerprint.startsWith("quest-hunt-combat|") ||
+                        existingFingerprint.startsWith("quest-boss-combat|")
+                    ))
         if (!coordinatorOwnsFingerprint) {
-            hostReplica.events.firstOrNull { it.commandId == command.commandId }?.let { existing ->
+            existingEvent?.let { existing ->
                 require(existing.commandFingerprint == fingerprint) { "Command ID collision" }
                 persist(existing)
                 return existing
@@ -137,19 +155,35 @@ class StormglassGameplayCommandHandler(
                     hostTimestamp,
                 )
             }
+            if (command.actionType.equals("START_HUNT", ignoreCase = true)) {
+                return questHuntCoordinator.start(
+                    command.commandId,
+                    command.actorId,
+                    command.questId,
+                    hostTimestamp,
+                )
+            }
             return applyQuestAction(before, command, fingerprint, hostTimestamp)
         }
         if (command is GameplayWireCommand.CombatAction && before.activeCombat != null) {
             val type = parseBasicCombatAction(command.actionType)
-            return if (before.worldFlags[QuestBossCoordinator.ACTIVE_QUEST_FLAG] != null) {
-                questBossCoordinator.submitAction(
+            val huntBound = before.worldFlags[QuestHuntCoordinator.ACTIVE_QUEST_FLAG] != null
+            val bossBound = before.worldFlags[QuestBossCoordinator.ACTIVE_QUEST_FLAG] != null
+            require(!(huntBound && bossBound)) { "Invalid simultaneous HUNT and BOSS combat bindings" }
+            return when {
+                huntBound -> questHuntCoordinator.submitAction(
                     command.commandId,
                     command.actorId,
                     type,
                     hostTimestamp,
                 )
-            } else {
-                arcCombatCoordinator.submitAction(
+                bossBound -> questBossCoordinator.submitAction(
+                    command.commandId,
+                    command.actorId,
+                    type,
+                    hostTimestamp,
+                )
+                else -> arcCombatCoordinator.submitAction(
                     command.commandId,
                     command.actorId,
                     type,
@@ -479,10 +513,21 @@ class StormglassGameplayCommandHandler(
                 hostTimestamp = hostTimestamp,
             )
         }
-        if (
-            poweredWorld.activeCombat != null &&
-            poweredWorld.worldFlags[QuestBossCoordinator.ACTIVE_QUEST_FLAG] != null
-        ) {
+        val huntBound = poweredWorld.worldFlags[QuestHuntCoordinator.ACTIVE_QUEST_FLAG] != null
+        val bossBound = poweredWorld.worldFlags[QuestBossCoordinator.ACTIVE_QUEST_FLAG] != null
+        require(!(huntBound && bossBound)) { "Invalid simultaneous HUNT and BOSS combat bindings" }
+        if (poweredWorld.activeCombat != null && huntBound) {
+            return questHuntCoordinator.submitPreparedAction(
+                commandId = command.commandId,
+                playerId = command.actorId,
+                actionType = prepared.combatAction,
+                preparedWorld = poweredWorld,
+                sourceFingerprint = fingerprint,
+                metadata = metadata,
+                hostTimestamp = hostTimestamp,
+            )
+        }
+        if (poweredWorld.activeCombat != null && bossBound) {
             return questBossCoordinator.submitPreparedAction(
                 commandId = command.commandId,
                 playerId = command.actorId,
