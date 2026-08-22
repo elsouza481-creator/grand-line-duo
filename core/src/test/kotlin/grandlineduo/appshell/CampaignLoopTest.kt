@@ -3,6 +3,7 @@ package grandlineduo.appshell
 import grandlineduo.game.StormglassPersistenceAdapter
 import grandlineduo.game.arc.ArcPhase
 import grandlineduo.game.combat.CombatActionType
+import grandlineduo.game.combat.CombatStatus
 import grandlineduo.game.combat.EnemyAttackType
 import grandlineduo.game.InventoryEngine
 import grandlineduo.game.scenario.ScenarioStage
@@ -43,7 +44,7 @@ object CampaignLoopTest {
                 assertEquals(ArcPhase.ARRIVAL, after.activeArc!!.phase)
                 assertEquals("emberwake", after.islandId)
             }
-
+        }
 
         test("solo campaign can reach the final epilogue through public gameplay APIs") {
             val root = Files.createTempDirectory("gld-full-campaign")
@@ -54,35 +55,66 @@ object CampaignLoopTest {
                 while (session.worldState().worldFlags["campaign.complete"] != "true" && steps++ < 700) {
                     val world = session.worldState()
                     val view = GamePresenter.present(world, "p1")
-                    when (view.screen) {
-                        GameScreen.STORY -> session.submitScenarioChoice(view.actions.first().id)
-                        GameScreen.ARC -> session.submitArcChoice(view.actions.first().id)
-                        GameScreen.COMBAT -> {
-                            val combat = world.activeCombat ?: StormglassPersistenceAdapter.decode(world).combat!!
-                            val action = if (combat.telegraph.targetPlayerId == "p1" && combat.telegraph.type == EnemyAttackType.HEAVY_STRIKE) {
-                                CombatActionType.DODGE
-                            } else CombatActionType.SETUP
-                            session.submitCombatAction(action)
-                        }
-                        GameScreen.VOYAGE -> session.submitVoyageAction(VoyageAction.HELM)
-                        GameScreen.HUB -> {
-                            var current = session.worldState()
-                            var inventory = InventoryEngine.read(current, "p1")
-                            while (current.players.getValue("p1").hp < current.players.getValue("p1").maxHp && (inventory.items["bandage"] ?: 0) > 0) {
-                                session.submitInventoryAction("USE", "bandage")
-                                current = session.worldState()
-                                inventory = InventoryEngine.read(current, "p1")
+                    try {
+                        when (view.screen) {
+                            GameScreen.STORY -> session.submitScenarioChoice(view.actions.first().id)
+                            GameScreen.ARC -> session.submitArcChoice(view.actions.first().id)
+                            GameScreen.COMBAT -> {
+                                val combat = world.activeCombat ?: StormglassPersistenceAdapter.decode(world).combat!!
+                                val action = when {
+                                    combat.telegraph.targetPlayerId == "p1" && combat.telegraph.type == EnemyAttackType.HEAVY_STRIKE -> CombatActionType.DODGE
+                                    combat.telegraph.targetPlayerId == "p1" && combat.telegraph.type == EnemyAttackType.SWEEP -> CombatActionType.DEFEND
+                                    else -> CombatActionType.SETUP
+                                }
+                                session.submitCombatAction(action)
+                                val afterCombat = session.worldState().activeCombat
+                                if (afterCombat?.status == CombatStatus.DEFEAT) {
+                                    error(
+                                        "Boss defeat after round=${combat.round} chosen=$action " +
+                                            "telegraph=${combat.telegraph.type}:${combat.telegraph.targetPlayerId} " +
+                                            "beforeP1=${combat.players["p1"]?.hp}/${combat.players["p1"]?.maxHp} " +
+                                            "beforeP2=${combat.players["p2"]?.hp}/${combat.players["p2"]?.maxHp} " +
+                                            "enemy=${combat.enemy.hp}/${combat.enemy.maxHp}@${combat.enemy.attackPower} " +
+                                            "afterP1=${afterCombat.players["p1"]?.hp} afterP2=${afterCombat.players["p2"]?.hp} " +
+                                            "afterEnemy=${afterCombat.enemy.hp}"
+                                    )
+                                }
                             }
-                            if (current.players.getValue("p1").hp < current.players.getValue("p1").maxHp && current.partyBerries >= 250L) {
-                                runCatching { session.submitWorldAction("SHOP_BUY", "bandage", 2) }
-                                repeat(2) { runCatching { session.submitInventoryAction("USE", "bandage") } }
+                            GameScreen.DUEL -> error("PvP duel is not part of the solo campaign loop")
+                            GameScreen.VOYAGE -> session.submitVoyageAction(VoyageAction.HELM)
+                            GameScreen.HUB -> {
+                                var current = session.worldState()
+                                var inventory = InventoryEngine.read(current, "p1")
+                                while (current.players.getValue("p1").hp < current.players.getValue("p1").maxHp && (inventory.items["bandage"] ?: 0) > 0) {
+                                    session.submitInventoryAction("USE", "bandage")
+                                    current = session.worldState()
+                                    inventory = InventoryEngine.read(current, "p1")
+                                }
+                                if (current.players.getValue("p1").hp < current.players.getValue("p1").maxHp && current.partyBerries >= 250L) {
+                                    runCatching { session.submitWorldAction("SHOP_BUY", "bandage", 2) }
+                                    repeat(2) { runCatching { session.submitInventoryAction("USE", "bandage") } }
+                                }
+                                session.advanceCampaign()
                             }
-                            session.advanceCampaign()
+                            GameScreen.QUESTS -> error("Quest overlay is not part of the automatic campaign loop")
+                            GameScreen.WAITING_FOR_PARTNER -> session.refresh()
+                            GameScreen.END -> break
+                            GameScreen.GAME_OVER -> error("Campaign became unwinnable at step $steps")
+                            GameScreen.CHARACTER_CREATION -> error("Character unexpectedly missing")
                         }
-                        GameScreen.WAITING_FOR_PARTNER -> session.refresh()
-                        GameScreen.END -> break
-                        GameScreen.GAME_OVER -> error("Campaign became unwinnable at step $steps")
-                        GameScreen.CHARACTER_CREATION -> error("Character unexpectedly missing")
+                    } catch (t: Throwable) {
+                        val after = session.worldState()
+                        val action = view.actions.firstOrNull()
+                        error(
+                            "Gameplay transition failed at step=$steps screen=${view.screen} " +
+                                "action=${action?.kind}:${action?.id} " +
+                                "beforeIsland=${world.islandId} beforePhase=${world.activeArc?.phase} " +
+                                "beforeActed=${world.activeArc?.actedThisPhase} beforeCombat=${world.activeCombat?.status} " +
+                                "beforeLocked=${world.activeCombat?.lockedActions?.keys} " +
+                                "afterIsland=${after.islandId} afterPhase=${after.activeArc?.phase} " +
+                                "afterActed=${after.activeArc?.actedThisPhase} afterCombat=${after.activeCombat?.status} " +
+                                "afterLocked=${after.activeCombat?.lockedActions?.keys}: ${t.message}"
+                        )
                     }
                 }
                 val final = session.worldState()
@@ -91,7 +123,6 @@ object CampaignLoopTest {
                 assertTrue(!final.worldFlags["campaign.epilogue"].isNullOrBlank())
                 assertTrue((final.worldFlags.keys.count { it.startsWith("reward.arc.") }) >= 5)
             }
-        }
         }
     }
 }

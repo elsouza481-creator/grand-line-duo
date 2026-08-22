@@ -76,6 +76,24 @@ sealed interface GameplayWireCommand {
     ) : GameplayWireCommand {
         override fun fingerprint(): String = "power-action|$actorId|$techniqueId"
     }
+
+    data class QuestAction(
+        override val commandId: String,
+        override val actorId: String,
+        val actionType: String,
+        val questId: String = "",
+        val amount: Int = 1,
+    ) : GameplayWireCommand {
+        override fun fingerprint(): String = "quest-action|$actorId|$actionType|$questId|$amount"
+    }
+
+    data class DuelAction(
+        override val commandId: String,
+        override val actorId: String,
+        val actionType: String,
+    ) : GameplayWireCommand {
+        override fun fingerprint(): String = "duel-action|$actorId|${actionType.uppercase()}"
+    }
 }
 
 private object CharacterDraftFingerprint {
