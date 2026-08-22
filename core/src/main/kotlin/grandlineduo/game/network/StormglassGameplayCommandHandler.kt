@@ -107,6 +107,16 @@ class StormglassGameplayCommandHandler(
         require(command.actorId == "p1" || command.actorId == "p2") { "Unknown player ${command.actorId}" }
         val before = hostReplica.state
 
+        if (command is GameplayWireCommand.CombatAction && existingEvent != null) {
+            val type = parseBasicCombatAction(command.actionType)
+            when {
+                existingFingerprint.startsWith("quest-hunt-combat|") ->
+                    return questHuntCoordinator.submitAction(command.commandId, command.actorId, type, hostTimestamp)
+                existingFingerprint.startsWith("quest-boss-combat|") ->
+                    return questBossCoordinator.submitAction(command.commandId, command.actorId, type, hostTimestamp)
+            }
+        }
+
         if (before.activeDuel != null && command !is GameplayWireCommand.DuelAction) {
             require(before.activeCombat == null) { "Invalid simultaneous duel and PvE combat" }
             require(command is GameplayWireCommand.CombatAction || command is GameplayWireCommand.PowerAction) {
