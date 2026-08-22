@@ -159,10 +159,19 @@ object GamePresenter {
             board.active.toSortedMap().values.forEach { progress ->
                 when (progress.status) {
                     QuestStatus.ACTIVE -> {
-                        if (progress.definition.type == QuestType.BOSS) {
-                            if (world.activeCombat == null) add(GameAction("START_BOSS|${progress.definition.questId}|1", "Enfrentar alvo • ${progress.definition.title}", "QUEST"))
-                        } else {
-                            add(GameAction("PROGRESS|${progress.definition.questId}|1", "Registrar progresso • ${progress.definition.title}", "QUEST"))
+                        when (progress.definition.type) {
+                            QuestType.BOSS -> {
+                                if (world.activeCombat == null) {
+                                    add(GameAction("START_BOSS|${progress.definition.questId}|1", "Enfrentar alvo • ${progress.definition.title}", "QUEST"))
+                                }
+                            }
+                            QuestType.HUNT -> {
+                                if (world.activeCombat == null) {
+                                    val prefix = if (progress.progress == 0) "Rastrear e enfrentar alvo" else "Continuar caçada"
+                                    add(GameAction("START_HUNT|${progress.definition.questId}|1", "$prefix • ${progress.definition.title}", "QUEST"))
+                                }
+                            }
+                            else -> add(GameAction("PROGRESS|${progress.definition.questId}|1", "Registrar progresso • ${progress.definition.title}", "QUEST"))
                         }
                     }
                     QuestStatus.READY_TO_TURN_IN -> add(GameAction("TURN_IN|${progress.definition.questId}|1", "Entregar contrato • ${progress.definition.title}", "QUEST"))
