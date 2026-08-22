@@ -69,7 +69,7 @@ object GamePresenterTest {
 
         test("quest board presentation exposes offers progress rewards and lifecycle actions") {
             val offer = quest("offer-1", QuestRarity.RARE, requiredAmount = 3)
-            val active = quest("active-1", QuestRarity.EPIC, requiredAmount = 4)
+            val active = quest("active-1", QuestRarity.EPIC, requiredAmount = 4, type = QuestType.COLLECT)
             val ready = quest("ready-1", QuestRarity.LEGENDARY, requiredAmount = 1)
             val world = profiledWorld().copy(
                 questBoard = QuestBoardState(
@@ -97,13 +97,11 @@ object GamePresenterTest {
 
         test("boss contract exposes start boss instead of manual progress") {
             val boss = quest("boss-1", QuestRarity.EPIC, requiredAmount = 1, type = QuestType.BOSS)
-            val hunt = quest("hunt-1", QuestRarity.RARE, requiredAmount = 3)
             val readyBoss = quest("boss-ready", QuestRarity.LEGENDARY, requiredAmount = 1, type = QuestType.BOSS)
             val world = profiledWorld().copy(
                 questBoard = QuestBoardState(
                     active = mapOf(
                         boss.questId to QuestProgress(boss, QuestStatus.ACTIVE, progress = 0, acceptedBy = "p1"),
-                        hunt.questId to QuestProgress(hunt, QuestStatus.ACTIVE, progress = 1, acceptedBy = "p1"),
                         readyBoss.questId to QuestProgress(readyBoss, QuestStatus.READY_TO_TURN_IN, progress = 1, acceptedBy = "p2"),
                     ),
                 ),
@@ -117,8 +115,58 @@ object GamePresenterTest {
                     it.label == "Enfrentar alvo • Contrato boss-1"
             })
             assertTrue(presentation.actions.none { it.id == "PROGRESS|boss-1|1" })
-            assertTrue(presentation.actions.any { it.id == "PROGRESS|hunt-1|1" })
             assertTrue(presentation.actions.any { it.id == "TURN_IN|boss-ready|1" })
+        }
+
+        test("hunt contract exposes tracking continuing and turn in without manual progress") {
+            val fresh = quest("hunt-fresh", QuestRarity.COMMON, requiredAmount = 3)
+            val continued = quest("hunt-continued", QuestRarity.RARE, requiredAmount = 6)
+            val ready = quest("hunt-ready", QuestRarity.EPIC, requiredAmount = 9)
+            val world = profiledWorld().copy(
+                questBoard = QuestBoardState(
+                    active = mapOf(
+                        fresh.questId to QuestProgress(fresh, QuestStatus.ACTIVE, progress = 0, acceptedBy = "p1"),
+                        continued.questId to QuestProgress(continued, QuestStatus.ACTIVE, progress = 2, acceptedBy = "p2"),
+                        ready.questId to QuestProgress(ready, QuestStatus.READY_TO_TURN_IN, progress = 9, acceptedBy = "p1"),
+                    ),
+                ),
+            )
+
+            val presentation = GamePresenter.presentQuests(world, "p1")
+
+            assertTrue(presentation.actions.any {
+                it.id == "START_HUNT|hunt-fresh|1" &&
+                    it.kind == "QUEST" &&
+                    it.label == "Rastrear e enfrentar alvo • Contrato hunt-fresh"
+            })
+            assertTrue(presentation.actions.any {
+                it.id == "START_HUNT|hunt-continued|1" &&
+                    it.kind == "QUEST" &&
+                    it.label == "Continuar caçada • Contrato hunt-continued"
+            })
+            assertTrue(presentation.actions.none { it.id.startsWith("PROGRESS|hunt-") })
+            assertTrue(presentation.actions.any { it.id == "TURN_IN|hunt-ready|1" })
+        }
+
+        test("migration quest types retain manual progress while hunt is automated") {
+            val active = listOf(
+                QuestType.EXPLORE,
+                QuestType.COLLECT,
+                QuestType.RESCUE,
+                QuestType.ESCORT,
+                QuestType.INVESTIGATE,
+            ).associate { type ->
+                val q = quest("migration-${type.name.lowercase()}", QuestRarity.COMMON, 2, type)
+                q.questId to QuestProgress(q, QuestStatus.ACTIVE, 0, "p1")
+            }
+            val world = profiledWorld().copy(questBoard = QuestBoardState(active = active))
+
+            val presentation = GamePresenter.presentQuests(world, "p1")
+
+            active.keys.forEach { questId ->
+                assertTrue(presentation.actions.any { it.id == "PROGRESS|$questId|1" })
+            }
+            assertTrue(presentation.actions.none { it.id.startsWith("START_HUNT|") })
         }
 
         test("presenter exposes tactical actions while combat is active") {
