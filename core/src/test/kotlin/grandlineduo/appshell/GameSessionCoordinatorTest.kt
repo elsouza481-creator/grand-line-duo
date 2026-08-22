@@ -64,14 +64,16 @@ object GameSessionCoordinatorTest {
             }
         }
 
-        test("session coordinator completes shared quest lifecycle through authoritative command path") {
+        test("session coordinator completes shared migration quest lifecycle through authoritative command path") {
             val root = Files.createTempDirectory("gld-session-quest")
             GameSessionCoordinator(root).use { session ->
                 session.startSolo(campaignId = "session-quest")
                 session.createCharacter(validDraft("Mira"))
 
                 session.submitQuestAction("REFRESH")
-                val offered = session.worldState().questBoard.offers.values.first()
+                val offered = session.worldState().questBoard.offers.values.first {
+                    it.type != QuestType.HUNT && it.type != QuestType.BOSS
+                }
                 val berriesBefore = session.worldState().partyBerries
 
                 session.submitQuestAction("ACCEPT", offered.questId)
@@ -143,6 +145,90 @@ object GameSessionCoordinatorTest {
 
                 val after = session.worldState().activeCombat
                 assertTrue(after == null || after.round > before.round || "p2" in after.lockedActions)
+            }
+        }
+
+        test("solo hunt uses existing companion planner without healing or early reward") {
+            val root = Files.createTempDirectory("gld-session-quest-hunt")
+            val campaignId = "session-quest-hunt"
+            val hunt = QuestDefinition(
+                questId = "solo-hunt-1",
+                islandId = "stormglass-cay",
+                title = "Caçar saqueadores do cais",
+                type = QuestType.HUNT,
+                rarity = QuestRarity.COMMON,
+                issuerFaction = "LOCALS",
+                targetId = "dock-raiders",
+                requiredAmount = 3,
+                reward = QuestReward(berries = 2_500),
+            )
+            val p1Profile = (CharacterCreation.create(validDraft("Arlen")) as CharacterCreationResult.Success).profile
+            val p2Profile = (CharacterCreation.create(validDraft("Mako")) as CharacterCreationResult.Success).profile
+            val p1Hp = p1Profile.maxHp - 5
+            val p2Hp = p2Profile.maxHp - 4
+            val p1Energy = p1Profile.maxEnergy - 3
+            val base = WorldState(
+                campaignId = campaignId,
+                islandId = "stormglass-cay",
+                partyBerries = 1_234L,
+                players = mapOf(
+                    "p1" to PlayerState(
+                        "p1", p1Profile.name, p1Hp, p1Profile.maxHp, 0,
+                        p1Energy, p1Profile.maxEnergy, p1Profile,
+                    ),
+                    "p2" to PlayerState(
+                        "p2", p2Profile.name, p2Hp, p2Profile.maxHp, 0,
+                        p2Profile.maxEnergy, p2Profile.maxEnergy, p2Profile,
+                    ),
+                ),
+                questBoard = QuestBoardState(
+                    active = mapOf(
+                        hunt.questId to QuestProgress(
+                            definition = hunt,
+                            status = QuestStatus.ACTIVE,
+                            progress = 0,
+                            acceptedBy = "p1",
+                        )
+                    )
+                ),
+                worldFlags = mapOf(
+                    "campaign.mode" to "SOLO",
+                    "campaign.chapter" to "0",
+                    "reward.stormglass" to "true",
+                ),
+            )
+            val scenario = StormglassPersistenceAdapter.decode(base).scenario.copy(
+                stage = ScenarioStage.COMPLETE,
+                actedThisStage = emptySet(),
+            )
+            val initial = StormglassPersistenceAdapter.encode(base, scenario, null)
+            DurableCampaignStore(root.resolve(campaignId)).initialize(initial)
+
+            GameSessionCoordinator(root).use { session ->
+                session.resume(campaignId)
+                val berriesBefore = session.worldState().partyBerries
+
+                session.submitQuestAction("START_HUNT", hunt.questId)
+
+                val started = session.worldState()
+                assertEquals(GameScreen.COMBAT, GamePresenter.present(started, "p1").screen)
+                assertEquals(p1Hp, started.players.getValue("p1").hp)
+                assertEquals(p2Hp, started.players.getValue("p2").hp)
+                assertEquals(p1Energy, started.players.getValue("p1").energy)
+                assertEquals(berriesBefore, started.partyBerries)
+                assertEquals(0, started.questBoard.active.getValue(hunt.questId).progress)
+                val before = started.activeCombat!!
+
+                session.submitCombatAction(CombatActionType.SETUP)
+
+                val afterWorld = session.worldState()
+                val after = afterWorld.activeCombat
+                assertTrue(
+                    after == null || after.round > before.round ||
+                        ("p2" in after.lockedActions && "p1" !in after.lockedActions),
+                    "SOLO planner must answer the structured HUNT combat instead of leaving only P1 locked",
+                )
+                assertEquals(berriesBefore, afterWorld.partyBerries)
             }
         }
 
