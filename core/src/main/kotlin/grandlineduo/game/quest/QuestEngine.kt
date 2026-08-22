@@ -31,14 +31,33 @@ object QuestEngine {
         require(amount > 0) { "Quest progress amount must be positive" }
         val current = world.questBoard.active[questId]
             ?: throw IllegalArgumentException("Quest is not active: $questId")
-        require(current.definition.type != QuestType.BOSS) {
-            "Boss contracts progress only through boss victory"
-        }
         require(current.status == QuestStatus.ACTIVE || current.status == QuestStatus.READY_TO_TURN_IN) {
             "Quest cannot progress from ${current.status}"
         }
+        require(current.definition.type != QuestType.BOSS && current.definition.type != QuestType.HUNT) {
+            "${current.definition.type.name} contracts progress only through authoritative objectives"
+        }
         if (current.status == QuestStatus.READY_TO_TURN_IN) return world
+        return advance(world, questId, current, amount)
+    }
 
+    fun progressObjective(world: WorldState, questId: String, amount: Int): WorldState {
+        require(amount > 0) { "Quest progress amount must be positive" }
+        val current = world.questBoard.active[questId]
+            ?: throw IllegalArgumentException("Quest is not active: $questId")
+        require(current.status == QuestStatus.ACTIVE) { "Quest objective is not active" }
+        require(current.definition.type == QuestType.HUNT) {
+            "Objective progress is not enabled for ${current.definition.type.name}"
+        }
+        return advance(world, questId, current, amount)
+    }
+
+    private fun advance(
+        world: WorldState,
+        questId: String,
+        current: QuestProgress,
+        amount: Int,
+    ): WorldState {
         val nextProgress = (current.progress + amount).coerceAtMost(current.definition.requiredAmount)
         val nextStatus = if (nextProgress >= current.definition.requiredAmount) {
             QuestStatus.READY_TO_TURN_IN
