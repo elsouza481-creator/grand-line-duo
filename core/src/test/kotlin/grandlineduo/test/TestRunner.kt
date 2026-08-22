@@ -47,6 +47,7 @@ fun main() {
     grandlineduo.sim.ConvergenceSimulationTest.register()
     grandlineduo.game.director.GrandLineDirectorTest.register()
     grandlineduo.game.quest.QuestEngineTest.register()
+    grandlineduo.game.quest.QuestObjectiveRouterTest.register()
     grandlineduo.game.quest.QuestDirectorBridgeTest.register()
     grandlineduo.game.quest.QuestPersistenceTest.register()
     grandlineduo.game.quest.QuestLanIntegrationTest.register()
