@@ -673,3 +673,46 @@ git commit -m "docs: record hunt quest verification"
 ```
 
 Only commit if notes changed. Then check/run Core CI on that exact head before any completion claim.
+
+---
+
+## Observed Verification Evidence — 2026-08-23
+
+All values below were read from GitHub Actions or repository blobs after implementation; none are estimated.
+
+### Core suite before Android workflow
+
+- Feature head: `bbd84ebcd932fa5e8ffa02a1c544a0993a783f02`
+- PR merge SHA: `4c2c498087157abdcef1ffacad17b988e4c47f49`
+- Core CI #454 run: `32661089211`
+- Core CI job: `97247279369`
+- Command: `bash tools/run-core-tests.sh`
+- Result: **400/400 passed, 0 failures**
+- Real TCP HUNT test passed: `P2 hunt reconnects mid encounter converges across three fights and rewards once over real TCP`.
+
+### Android current-source verification
+
+- Build-tested feature head: `7f834099e6ec85a5c536d4855eb2a0af4503d0a0`
+- PR merge SHA checked out by Actions: `c7b9deae830432b9a21795b63dbde0bb88213a89`
+- Android verify run #5: `32661275182`
+- Android verify job: `97247725679`
+- Core suite inside Android job: **400/400 passed**
+- Gradle result: **BUILD SUCCESSFUL in 47s**
+- Non-empty APK verified at `app/build/outputs/apk/debug/app-debug.apk`
+- APK SHA-256: `4bf588cf7fb81b5ff4c6b2cd3adc79d3cc97c3eab4f655ab11862b0bda48d7ee`
+- Only the pre-existing Kotlin Java-type mismatch warnings in `GameSessionCoordinator.kt` and `LanShellSessionCoordinator.kt` were emitted; no build errors.
+- Temporary workflow removal commit: `b1daa8ada6a1841d8ae8da873eb354dc4acec0c9`.
+
+### Compatibility invariants observed
+
+- `CombatEngine.kt` feature/main blob: `f9b3e0c8fb1941ed462580c5dfd2f3a1b73260f0`.
+- `QuestBossFactory.kt` current/pre-HUNT blob: `8c4c98a5a2cd36c8347d030f6be6347cc2b60572`.
+- `QuestBossCoordinator.kt` current/pre-HUNT blob: `00104fd636316ea1ca3e8770476f0c9274ddf22e`.
+- `PROTOCOL_VERSION == 5`.
+- `QuestAction` remains gameplay subtype `9`; `DuelAction` remains subtype `10`.
+- `WorldStateCodec.CURRENT_VERSION == 11`.
+- HUNT adds no new snapshot/canonical block; persistence uses existing `activeCombat` plus `quest.hunt.active` world flag.
+- EXPLORE, COLLECT, RESCUE, ESCORT and INVESTIGATE still accept manual `PROGRESS` in this migration slice.
+- HUNT victory advances only the bound objective and grants no reward before explicit `TURN_IN`.
+
+The exact final clean-head Core CI and post-build diff proof are checked after this documentation commit, so they are intentionally recorded in PR #4 rather than guessed here.
