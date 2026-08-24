@@ -34,7 +34,7 @@ object QuestEngine {
         require(current.status == QuestStatus.ACTIVE || current.status == QuestStatus.READY_TO_TURN_IN) {
             "Quest cannot progress from ${current.status}"
         }
-        require(current.definition.type != QuestType.BOSS && current.definition.type != QuestType.HUNT) {
+        require(current.definition.type in setOf(QuestType.RESCUE, QuestType.ESCORT, QuestType.INVESTIGATE)) {
             "${current.definition.type.name} contracts progress only through authoritative objectives"
         }
         if (current.status == QuestStatus.READY_TO_TURN_IN) return world
@@ -46,7 +46,7 @@ object QuestEngine {
         val current = world.questBoard.active[questId]
             ?: throw IllegalArgumentException("Quest is not active: $questId")
         require(current.status == QuestStatus.ACTIVE) { "Quest objective is not active" }
-        require(current.definition.type == QuestType.HUNT) {
+        require(current.definition.type in setOf(QuestType.HUNT, QuestType.EXPLORE, QuestType.COLLECT)) {
             "Objective progress is not enabled for ${current.definition.type.name}"
         }
         return advance(world, questId, current, amount)
