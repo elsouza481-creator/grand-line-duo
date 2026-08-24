@@ -4,7 +4,7 @@
 
 **Goal:** Convert EXPLORE and COLLECT contracts from manual progress into deterministic host-authoritative D20 field actions with 1 PE cost, visible roll state, exact objective routing, persistence, idempotency and real TCP reconnect coverage.
 
-**Architecture:** Extend the existing `QuestObjectiveRouter` to authorize EXPLORE/COLLECT objective events, add a pure `QuestFieldResolver` for D20 rules, and add a `QuestFieldCoordinator` for atomic energy/state/persistence. Keep `GameplayWireCommand.QuestAction` subtype 9, protocol v5 and snapshot v11 unchanged; handler and presenter only gain new action strings.
+**Architecture:** Extend the existing `QuestObjectiveRouter` to authorize EXPLORE/COLLECT objective events, add a pure `QuestFieldResolver` for D20 rules, and add a `QuestFieldCoordinator` for atomic energy/state/persistence. Keep `GameplayWireCommand.QuestAction` subtype 9, protocol v5 and snapshot v11 unchanged; handler and presenter gain only new action strings.
 
 **Tech Stack:** Kotlin/JVM core module, custom Kotlin test runner, existing `HostReplica`/`ReplaceWorldStateCommand`, snapshot/event persistence, loopback TCP LAN tests, Android Gradle build.
 
@@ -15,40 +15,40 @@
 - `WorldStateCodec.CURRENT_VERSION` remains **11**; no structured snapshot field is added.
 - `PROTOCOL_VERSION` remains **5**.
 - `GameplayWireCommand.QuestAction` remains wire subtype **9**; `DuelAction` remains subtype **10**.
-- `CombatEngine.kt`, `QuestBossFactory.kt` and `QuestBossCoordinator.kt` must remain unchanged.
+- `CombatEngine.kt`, `QuestBossFactory.kt` and `QuestBossCoordinator.kt` remain unchanged.
 - HUNT behavior remains unchanged and green.
 - Field state lives only in existing `worldFlags` plus existing quest progress/player energy.
 - Every accepted EXPLORE/COLLECT field attempt spends exactly **1 PE**, success or failure.
 - Rewards remain exclusively behind existing `TURN_IN`.
 - RESCUE/ESCORT/INVESTIGATE retain manual `PROGRESS` in this slice.
 - Shop buys, inventory grants/rewards, campaign arrival, voyage completion and ordinary story/arc choices do not progress EXPLORE/COLLECT.
-- New production code is written only after its corresponding RED test is observed.
+- Production code is written only after its corresponding RED test is observed.
 
 ---
 
 ## File Structure
 
 **Create**
-- `core/src/main/kotlin/grandlineduo/game/quest/QuestFieldResolver.kt` — pure field-action type, result model, D20/CD/modifier/seed/progress rules.
-- `core/src/main/kotlin/grandlineduo/game/quest/QuestFieldState.kt` — exact world-flag key/read/write/cleanup helpers for attempt + visible last roll.
-- `core/src/main/kotlin/grandlineduo/game/quest/QuestFieldCoordinator.kt` — host authority, validation, PE spend, objective application, metadata, idempotency, persistence.
-- `core/src/test/kotlin/grandlineduo/game/quest/QuestFieldResolverTest.kt` — deterministic pure rules.
-- `core/src/test/kotlin/grandlineduo/game/quest/QuestFieldCoordinatorTest.kt` — atomic lifecycle, invalid states, cleanup/idempotency.
-- `core/src/test/kotlin/grandlineduo/game/quest/QuestFieldRoutingTest.kt` — handler routing + negative integration boundaries.
-- `core/src/test/kotlin/grandlineduo/game/quest/QuestFieldLanIntegrationTest.kt` — real TCP reconnect/convergence/reward lifecycle.
+- `core/src/main/kotlin/grandlineduo/game/quest/QuestFieldResolver.kt` — field-action type, result model, D20/CD/modifier/seed/progress rules.
+- `core/src/main/kotlin/grandlineduo/game/quest/QuestFieldState.kt` — exact world-flag key/read/write/cleanup helpers.
+- `core/src/main/kotlin/grandlineduo/game/quest/QuestFieldCoordinator.kt` — host authority, validation, PE spend, objective application, metadata, idempotency and persistence.
+- `core/src/test/kotlin/grandlineduo/game/quest/QuestFieldResolverTest.kt`.
+- `core/src/test/kotlin/grandlineduo/game/quest/QuestFieldCoordinatorTest.kt`.
+- `core/src/test/kotlin/grandlineduo/game/quest/QuestFieldRoutingTest.kt`.
+- `core/src/test/kotlin/grandlineduo/game/quest/QuestFieldLanIntegrationTest.kt`.
 
 **Modify**
-- `core/src/main/kotlin/grandlineduo/game/quest/QuestObjectiveRouter.kt` — add `LOCATION_VISITED`; route exact EXPLORE/COLLECT matches.
-- `core/src/main/kotlin/grandlineduo/game/quest/QuestEngine.kt` — manual/objective authorization and field-state cleanup on `TURN_IN`/`FAIL`.
-- `core/src/main/kotlin/grandlineduo/game/network/StormglassGameplayCommandHandler.kt` — own/route `QuestFieldCoordinator`, require `amount == 1`.
-- `core/src/main/kotlin/grandlineduo/appshell/GamePresenter.kt` — EXPLORE/COLLECT actions, zero-PE hint, last-roll line.
-- `core/src/test/kotlin/grandlineduo/game/quest/QuestEngineTest.kt` — authorization/cleanup expectations.
-- `core/src/test/kotlin/grandlineduo/game/quest/QuestObjectiveRouterTest.kt` — EXPLORE/COLLECT matching and reserved no-op events.
-- `core/src/test/kotlin/grandlineduo/appshell/GamePresenterTest.kt` — labels, zero PE, last roll, remaining migration types.
-- `core/src/test/kotlin/grandlineduo/appshell/GameSessionCoordinatorTest.kt` — SOLO single-actor field semantics.
-- `core/src/test/kotlin/grandlineduo/test/TestRunner.kt` — register each new test object.
-- `docs/superpowers/plans/2026-08-24-explore-collect-field-objectives.md` — append observed verification evidence after completion.
-- PR #4 title/body — update only after final evidence exists.
+- `core/src/main/kotlin/grandlineduo/game/quest/QuestObjectiveRouter.kt`.
+- `core/src/main/kotlin/grandlineduo/game/quest/QuestEngine.kt`.
+- `core/src/main/kotlin/grandlineduo/game/network/StormglassGameplayCommandHandler.kt`.
+- `core/src/main/kotlin/grandlineduo/appshell/GamePresenter.kt`.
+- `core/src/test/kotlin/grandlineduo/game/quest/QuestEngineTest.kt`.
+- `core/src/test/kotlin/grandlineduo/game/quest/QuestObjectiveRouterTest.kt`.
+- `core/src/test/kotlin/grandlineduo/appshell/GamePresenterTest.kt`.
+- `core/src/test/kotlin/grandlineduo/appshell/GameSessionCoordinatorTest.kt`.
+- `core/src/test/kotlin/grandlineduo/test/TestRunner.kt`.
+- This plan, after verification, with the exact observed CI/build evidence.
+- PR #4 title/body, only after final evidence exists.
 
 ---
 
@@ -61,12 +61,12 @@
 - Modify: `core/src/test/kotlin/grandlineduo/game/quest/QuestObjectiveRouterTest.kt`
 
 **Interfaces:**
-- Consumes: existing `QuestEngine.progress(...)`, `QuestEngine.progressObjective(...)`, `QuestObjectiveEvent`.
-- Produces: `QuestObjectiveEventType.LOCATION_VISITED`; `progressObjective` accepts ACTIVE HUNT/EXPLORE/COLLECT; manual progress supports only RESCUE/ESCORT/INVESTIGATE.
+- Consumes: existing `QuestEngine.progress`, `QuestEngine.progressObjective`, `QuestObjectiveEvent`.
+- Produces: `QuestObjectiveEventType.LOCATION_VISITED`; objective progress for ACTIVE HUNT/EXPLORE/COLLECT; manual progress only for RESCUE/ESCORT/INVESTIGATE.
 
-- [ ] **Step 1: Replace the migration authorization tests with failing EXPLORE/COLLECT automation expectations**
+- [ ] **Step 1: Write failing QuestEngine authorization tests**
 
-In `QuestEngineTest.register()`, replace the old “migration types” expectations with:
+Replace the current migration expectations with these exact cases:
 
 ```kotlin
 test("manual quest progress rejects automated types while remaining migration types still work") {
@@ -87,10 +87,11 @@ test("manual quest progress rejects automated types while remaining migration ty
             questId = "manual-keep-${type.name.lowercase()}",
             type = type,
             targetId = "target-${type.name.lowercase()}",
+            requiredAmount = 3,
         )
         val accepted = QuestEngine.accept(worldWithOffer(quest), quest.questId, "p1")
-        assertEquals(1, QuestEngine.progress(accepted, quest.questId, 1)
-            .questBoard.active.getValue(quest.questId).progress)
+        val progressed = QuestEngine.progress(accepted, quest.questId, 1)
+        assertEquals(1, progressed.questBoard.active.getValue(quest.questId).progress)
     }
 }
 
@@ -120,16 +121,44 @@ test("objective progress accepts active hunt explore and collect only") {
 }
 ```
 
-- [ ] **Step 2: Add failing router tests for EXPLORE/COLLECT exact matching**
+Keep the existing ACTIVE-to-READY/clamp assertion and extend it once with EXPLORE or COLLECT to prove the shared transition is unchanged.
 
-Add helpers that can create different quest types/targets and tests:
+- [ ] **Step 2: Write failing exact router tests**
+
+Generalize the test helper to:
 
 ```kotlin
-test("location visited advances only the exact bound explore contract") {
-    val exploreA = objective("explore-a", QuestType.EXPLORE, "forgotten-ruins", required = 3)
-    val exploreB = objective("explore-b", QuestType.EXPLORE, "forgotten-ruins", required = 3)
-    val world = worldWith(exploreA, exploreB)
+private fun objective(
+    id: String,
+    type: QuestType,
+    target: String,
+    required: Int,
+    status: QuestStatus = QuestStatus.ACTIVE,
+    progress: Int = 0,
+): QuestProgress = QuestProgress(
+    definition = QuestDefinition(
+        questId = id,
+        islandId = "shells-town",
+        title = "Contrato $id",
+        type = type,
+        rarity = QuestRarity.COMMON,
+        issuerFaction = "CIVILIANS",
+        targetId = target,
+        requiredAmount = required,
+    ),
+    status = status,
+    progress = progress,
+    acceptedBy = "p1",
+)
+```
 
+Add these tests:
+
+```kotlin
+test("location visited advances only exact bound explore") {
+    val a = objective("explore-a", QuestType.EXPLORE, "forgotten-ruins", 3)
+    val b = objective("explore-b", QuestType.EXPLORE, "forgotten-ruins", 3)
+    val world = worldWith(a, b)
     val next = QuestObjectiveRouter.apply(
         world,
         QuestObjectiveEvent(
@@ -140,16 +169,14 @@ test("location visited advances only the exact bound explore contract") {
             "explore-a",
         ),
     )
-
     assertEquals(1, next.questBoard.active.getValue("explore-a").progress)
     assertEquals(0, next.questBoard.active.getValue("explore-b").progress)
 }
 
-test("item acquired advances only the exact bound collect contract") {
-    val collectA = objective("collect-a", QuestType.COLLECT, "medical-supplies", required = 4)
-    val collectB = objective("collect-b", QuestType.COLLECT, "medical-supplies", required = 4)
-    val world = worldWith(collectA, collectB)
-
+test("item acquired advances only exact bound collect") {
+    val a = objective("collect-a", QuestType.COLLECT, "medical-supplies", 4)
+    val b = objective("collect-b", QuestType.COLLECT, "medical-supplies", 4)
+    val world = worldWith(a, b)
     val next = QuestObjectiveRouter.apply(
         world,
         QuestObjectiveEvent(
@@ -160,9 +187,21 @@ test("item acquired advances only the exact bound collect contract") {
             "collect-a",
         ),
     )
-
     assertEquals(1, next.questBoard.active.getValue("collect-a").progress)
     assertEquals(0, next.questBoard.active.getValue("collect-b").progress)
+}
+
+test("field objective router rejects wrong source target island type and ready state") {
+    val explore = objective("explore-a", QuestType.EXPLORE, "forgotten-ruins", 3)
+    val collect = objective("collect-a", QuestType.COLLECT, "medical-supplies", 4)
+    val readyExplore = objective("explore-ready", QuestType.EXPLORE, "forgotten-ruins", 3, QuestStatus.READY_TO_TURN_IN, 3)
+    val world = worldWith(explore, collect, readyExplore)
+
+    assertEquals(world, QuestObjectiveRouter.apply(world, QuestObjectiveEvent(QuestObjectiveEventType.LOCATION_VISITED, "forgotten-ruins", "shells-town", 1, "missing")))
+    assertEquals(world, QuestObjectiveRouter.apply(world, QuestObjectiveEvent(QuestObjectiveEventType.LOCATION_VISITED, "other-place", "shells-town", 1, "explore-a")))
+    assertEquals(world, QuestObjectiveRouter.apply(world, QuestObjectiveEvent(QuestObjectiveEventType.LOCATION_VISITED, "forgotten-ruins", "other-island", 1, "explore-a")))
+    assertEquals(world, QuestObjectiveRouter.apply(world, QuestObjectiveEvent(QuestObjectiveEventType.ITEM_ACQUIRED, "forgotten-ruins", "shells-town", 1, "explore-a")))
+    assertEquals(world, QuestObjectiveRouter.apply(world, QuestObjectiveEvent(QuestObjectiveEventType.LOCATION_VISITED, "forgotten-ruins", "shells-town", 1, "explore-ready")))
 }
 
 test("reserved and future objective event types remain no op") {
@@ -181,21 +220,15 @@ test("reserved and future objective event types remain no op") {
 }
 ```
 
-Also cover wrong source, wrong target, wrong island, wrong event/quest type and READY state as no-ops.
-
-- [ ] **Step 3: Run the core suite and confirm RED is caused by the new authorization/event requirements**
-
-Run:
+- [ ] **Step 3: Run RED**
 
 ```bash
 bash tools/run-core-tests.sh
 ```
 
-Expected: failures because `LOCATION_VISITED` does not exist and EXPLORE/COLLECT authorization is still old. Do not modify production until this RED is observed.
+Expected: compile/test failures because `LOCATION_VISITED` does not exist and EXPLORE/COLLECT authorization is still old.
 
-- [ ] **Step 4: Implement minimal QuestEngine authorization**
-
-Change the manual guard to:
+- [ ] **Step 4: Implement QuestEngine authorization**
 
 ```kotlin
 require(current.definition.type in setOf(QuestType.RESCUE, QuestType.ESCORT, QuestType.INVESTIGATE)) {
@@ -203,7 +236,7 @@ require(current.definition.type in setOf(QuestType.RESCUE, QuestType.ESCORT, Que
 }
 ```
 
-Change objective authorization to:
+and:
 
 ```kotlin
 require(current.definition.type in setOf(QuestType.HUNT, QuestType.EXPLORE, QuestType.COLLECT)) {
@@ -211,11 +244,11 @@ require(current.definition.type in setOf(QuestType.HUNT, QuestType.EXPLORE, Ques
 }
 ```
 
-Keep ACTIVE-only validation and the shared `advance(...)` clamp unchanged.
+Do not change the shared `advance` function.
 
-- [ ] **Step 5: Implement minimal typed router mapping**
+- [ ] **Step 5: Implement typed router mapping**
 
-Add `LOCATION_VISITED` to the enum and replace the ENEMY-only early return with an exact event-to-quest mapping:
+Add `LOCATION_VISITED` immediately after `ISLAND_VISITED` and map:
 
 ```kotlin
 val questType = when (event.type) {
@@ -229,19 +262,17 @@ val questType = when (event.type) {
 }
 ```
 
-Then retain sorted quest iteration and exact status/island/target/source matching, replacing the hard-coded HUNT type with `questType`.
+Keep sorted iteration and exact status/island/target/source matching.
 
-- [ ] **Step 6: Run the full core suite for GREEN**
-
-Run:
+- [ ] **Step 6: Run GREEN**
 
 ```bash
 bash tools/run-core-tests.sh
 ```
 
-Expected: all existing tests plus new Task 1 tests pass.
+Expected: full suite passes.
 
-- [ ] **Step 7: Commit Task 1**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add core/src/main/kotlin/grandlineduo/game/quest/QuestEngine.kt \
@@ -261,8 +292,12 @@ git commit -m "feat: authorize explore and collect objective events"
 - Modify: `core/src/test/kotlin/grandlineduo/test/TestRunner.kt`
 
 **Interfaces:**
-- Consumes: `WorldState`, `QuestProgress`, `QuestRarity`, `QuestObjectiveEventType`, `Attribute`, `Skill`.
-- Produces:
+- Consumes: `WorldState`, `QuestProgress`, character attributes/skills.
+- Produces: `QuestFieldActionType`, `QuestFieldAttemptResult`, `QuestFieldResolver.resolve`, `rollSeed`, `difficultyClass`, `progressPerSuccess`.
+
+- [ ] **Step 1: Write resolver RED tests and register the test object**
+
+Use these exact production types:
 
 ```kotlin
 enum class QuestFieldActionType { EXPLORE_SITE, SEARCH_SUPPLIES }
@@ -285,13 +320,45 @@ data class QuestFieldAttemptResult(
 )
 ```
 
-and `QuestFieldResolver.resolve(...)`, `rollSeed(...)`, `difficultyClass(...)`, `progressPerSuccess(...)`.
+In the test file, define a deterministic world helper:
 
-- [ ] **Step 1: Write resolver RED tests and register them**
+```kotlin
+private fun fieldWorld(per: Int, intelligence: Int, skills: Map<Skill, Int>): WorldState {
+    val created = CharacterCreation.create(CharacterCreationTest.validDraft()) as CharacterCreationResult.Success
+    val profile = created.profile.copy(
+        attributes = created.profile.attributes + mapOf(Attribute.PER to per, Attribute.INT to intelligence),
+        skills = skills,
+    )
+    return WorldState(
+        campaignId = "field-resolver",
+        islandId = "shells-town",
+        players = mapOf(
+            "p1" to PlayerState("p1", "P1", 30, 30, 0, 20, 20, profile),
+            "p2" to PlayerState("p2", "P2", 30, 30, 0, 20, 20, profile),
+        ),
+    )
+}
 
-Create `QuestFieldResolverTest.kt` with a profile helper containing all seven attributes and specific skills. Register `grandlineduo.game.quest.QuestFieldResolverTest.register()` in `TestRunner.kt` immediately after `QuestObjectiveRouterTest`.
+private fun activeQuest(type: QuestType, rarity: QuestRarity = QuestRarity.COMMON): QuestProgress = QuestProgress(
+    QuestDefinition(
+        questId = "field-${type.name.lowercase()}",
+        islandId = "shells-town",
+        title = "Field ${type.name}",
+        type = type,
+        rarity = rarity,
+        issuerFaction = "CIVILIANS",
+        targetId = if (type == QuestType.EXPLORE) "forgotten-ruins" else "medical-supplies",
+        requiredAmount = if (type == QuestType.EXPLORE) 3 * (rarity.ordinal + 1) else 4 * (rarity.ordinal + 1),
+    ),
+    QuestStatus.ACTIVE,
+    0,
+    "p1",
+)
+```
 
-Required exact tests:
+Register `QuestFieldResolverTest.register()` in `TestRunner.kt` immediately after `QuestObjectiveRouterTest.register()`.
+
+Add tests:
 
 ```kotlin
 test("field rarity maps to exact dc and progress multiplier") {
@@ -304,42 +371,37 @@ test("field rarity maps to exact dc and progress multiplier") {
     assertEquals(3, QuestFieldResolver.progressPerSuccess(QuestRarity.EPIC))
     assertEquals(4, QuestFieldResolver.progressPerSuccess(QuestRarity.LEGENDARY))
 }
-```
 
-```kotlin
-test("explore uses perception plus best field skill with deterministic tie priority") {
-    val world = fieldWorld(
-        per = 3,
-        int = 1,
-        skills = mapOf(Skill.PERCEPTION to 2, Skill.SURVIVAL to 2, Skill.INVESTIGATION to 2),
-    )
-    val result = QuestFieldResolver.resolve(
-        world, activeQuest(QuestType.EXPLORE), "p1", QuestFieldActionType.EXPLORE_SITE, 1, 11L,
-    )
+test("explore uses perception plus best skill with fixed tie priority") {
+    val world = fieldWorld(3, 1, mapOf(Skill.PERCEPTION to 2, Skill.SURVIVAL to 2, Skill.INVESTIGATION to 2))
+    val result = QuestFieldResolver.resolve(world, activeQuest(QuestType.EXPLORE), "p1", QuestFieldActionType.EXPLORE_SITE, 1, 11L)
     assertEquals("PER + PERCEPTION", result.checkId)
     assertEquals(5, result.modifier)
 }
-```
 
-```kotlin
-test("collect chooses numerically best check then fixed tie priority") {
-    val world = fieldWorld(
-        per = 2,
-        int = 3,
-        skills = mapOf(Skill.SURVIVAL to 2, Skill.MEDICINE to 1, Skill.INVESTIGATION to 1),
-    )
-    val result = QuestFieldResolver.resolve(
-        world, activeQuest(QuestType.COLLECT), "p1", QuestFieldActionType.SEARCH_SUPPLIES, 1, 12L,
-    )
+test("collect chooses numerically best check with fixed tie priority") {
+    val world = fieldWorld(2, 3, mapOf(Skill.SURVIVAL to 2, Skill.MEDICINE to 1, Skill.INVESTIGATION to 1))
+    val result = QuestFieldResolver.resolve(world, activeQuest(QuestType.COLLECT), "p1", QuestFieldActionType.SEARCH_SUPPLIES, 1, 12L)
     assertEquals("PER + SURVIVAL", result.checkId)
     assertEquals(4, result.modifier)
 }
+
+test("identical authoritative inputs yield identical field result") {
+    val world = fieldWorld(2, 2, mapOf(Skill.PERCEPTION to 1))
+    val progress = activeQuest(QuestType.EXPLORE, QuestRarity.EPIC)
+    val a = QuestFieldResolver.resolve(world, progress, "p2", QuestFieldActionType.EXPLORE_SITE, 4, 99L)
+    val b = QuestFieldResolver.resolve(world, progress, "p2", QuestFieldActionType.EXPLORE_SITE, 4, 99L)
+    assertEquals(a, b)
+    assertTrue(a.roll in 1..20)
+    assertEquals(a.roll + a.modifier, a.total)
+    assertEquals(a.total >= a.difficultyClass, a.success)
+}
 ```
 
-Add deterministic identity tests that compare `rollSeed(...)`, not d20 inequality:
+Seed identity test:
 
 ```kotlin
-test("every authoritative identity input participates in field roll seed") {
+test("quest target rarity action actor attempt and campaign seed participate in roll seed") {
     val base = activeQuest(QuestType.EXPLORE)
     val seed = QuestFieldResolver.rollSeed(base, "p1", QuestFieldActionType.EXPLORE_SITE, 1, 99L)
     assertTrue(seed != QuestFieldResolver.rollSeed(base.copy(definition = base.definition.copy(questId = "other")), "p1", QuestFieldActionType.EXPLORE_SITE, 1, 99L))
@@ -352,23 +414,21 @@ test("every authoritative identity input participates in field roll seed") {
 }
 ```
 
-Also assert identical inputs give identical result, `roll in 1..20`, `total == roll + modifier`, `success == (total >= difficultyClass)`, and mismatched action/type fails.
+Add one test that EXPLORE + `SEARCH_SUPPLIES` fails and COLLECT + `EXPLORE_SITE` fails.
 
-- [ ] **Step 2: Run the core suite to observe RED**
+- [ ] **Step 2: Run RED**
 
 ```bash
 bash tools/run-core-tests.sh
 ```
 
-Expected: unresolved `QuestFieldResolver`, `QuestFieldActionType` and `QuestFieldAttemptResult` symbols.
+Expected: unresolved field resolver/action/result symbols.
 
-- [ ] **Step 3: Implement the pure resolver**
+- [ ] **Step 3: Implement resolver rules**
 
-Create `QuestFieldResolver.kt`. Use exact rule tables:
+Create the types above and:
 
 ```kotlin
-enum class QuestFieldActionType { EXPLORE_SITE, SEARCH_SUPPLIES }
-
 object QuestFieldResolver {
     fun difficultyClass(rarity: QuestRarity): Int = when (rarity) {
         QuestRarity.COMMON -> 10
@@ -378,10 +438,28 @@ object QuestFieldResolver {
     }
 
     fun progressPerSuccess(rarity: QuestRarity): Int = rarity.ordinal + 1
+
+    fun rollSeed(
+        progress: QuestProgress,
+        actorId: String,
+        actionType: QuestFieldActionType,
+        attemptOrdinal: Int,
+        campaignSeed: Long,
+    ): Long {
+        require(attemptOrdinal > 0) { "Field attempt ordinal must be positive" }
+        val quest = progress.definition
+        return campaignSeed xor
+            (quest.questId.hashCode().toLong() * 6364136223846793005L) xor
+            (quest.targetId.hashCode().toLong() * -7046029254386353131L) xor
+            (quest.rarity.ordinal.toLong() shl 41) xor
+            (actionType.ordinal.toLong() shl 33) xor
+            (actorId.hashCode().toLong() * 104729L) xor
+            (attemptOrdinal.toLong() * 15485863L)
+    }
 }
 ```
 
-EXPLORE check candidates are exactly:
+Inside `resolve`, require ACTIVE status/current island/actor profile and exact action-to-type mapping. EXPLORE candidates, in tie order:
 
 ```kotlin
 listOf(
@@ -391,7 +469,7 @@ listOf(
 )
 ```
 
-COLLECT candidates are exactly:
+COLLECT candidates, in tie order:
 
 ```kotlin
 listOf(
@@ -401,35 +479,15 @@ listOf(
 )
 ```
 
-Select with `maxBy { it.second }`; Kotlin list order resolves ties to the first candidate. Missing skill rank is 0. Read `Attribute.PER`/`Attribute.INT` with `getValue` from the complete profile.
+Use `Random(rollSeed(...)).nextInt(20) + 1`; set objective type to `LOCATION_VISITED` for EXPLORE and `ITEM_ACQUIRED` for COLLECT. Natural 1/20 have no special rule.
 
-Freeze seed composition with explicit constants:
-
-```kotlin
-fun rollSeed(progress: QuestProgress, actorId: String, actionType: QuestFieldActionType, attemptOrdinal: Int, campaignSeed: Long): Long {
-    require(attemptOrdinal > 0) { "Field attempt ordinal must be positive" }
-    val quest = progress.definition
-    return campaignSeed xor
-        (quest.questId.hashCode().toLong() * 6364136223846793005L) xor
-        (quest.targetId.hashCode().toLong() * -7046029254386353131L) xor
-        (quest.rarity.ordinal.toLong() shl 41) xor
-        (actionType.ordinal.toLong() shl 33) xor
-        (actorId.hashCode().toLong() * 104729L) xor
-        (attemptOrdinal.toLong() * 15485863L)
-}
-```
-
-Use `Random(rollSeed(...)).nextInt(20) + 1`; natural 1/20 have no special rule.
-
-- [ ] **Step 4: Run full core suite for GREEN**
+- [ ] **Step 4: Run GREEN**
 
 ```bash
 bash tools/run-core-tests.sh
 ```
 
-Expected: all tests pass including resolver determinism.
-
-- [ ] **Step 5: Commit Task 2**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add core/src/main/kotlin/grandlineduo/game/quest/QuestFieldResolver.kt \
@@ -440,7 +498,7 @@ git commit -m "feat: add deterministic quest field resolver"
 
 ---
 
-### Task 3: Add Atomic QuestFieldCoordinator and Exact Field-State Cleanup
+### Task 3: Add Exact Field State and Atomic QuestFieldCoordinator
 
 **Files:**
 - Create: `core/src/main/kotlin/grandlineduo/game/quest/QuestFieldState.kt`
@@ -451,86 +509,86 @@ git commit -m "feat: add deterministic quest field resolver"
 - Modify: `core/src/test/kotlin/grandlineduo/test/TestRunner.kt`
 
 **Interfaces:**
-- Consumes: Task 1 objective routing, Task 2 resolver.
-- Produces: `QuestFieldState` exact flag helper and `QuestFieldCoordinator.attempt(...)`.
+- Consumes: Tasks 1-2.
+- Produces: `QuestFieldState` and `QuestFieldCoordinator.attempt(commandId, playerId, questId, actionType, hostTimestamp)`.
 
-- [ ] **Step 1: Write failing exact-key field-state and coordinator tests**
+- [ ] **Step 1: Write RED tests for state, success, failure, idempotency and invalid states**
 
-Register `QuestFieldCoordinatorTest.register()` in `TestRunner.kt`.
+Register `QuestFieldCoordinatorTest.register()` after resolver tests.
 
-Create `QuestFieldCoordinatorTest.kt` with a hub fixture using `ScenarioStage.COMPLETE` or `ArcPhase.COMPLETE`, complete P1/P2 profiles, positive HP, known energy, active field quests and no combat/voyage/duel.
+Use a hub fixture with complete P1/P2 profiles, positive HP, known energy, `ScenarioStage.COMPLETE`, active field quest and no active combat/voyage/duel.
 
-Required tests include:
+Define a deterministic seed selector:
 
 ```kotlin
-test("valid explore attempt spends one energy records ordinal and visible result") {
-    val quest = exploreQuest("field-explore")
-    val initial = hubWorld(quest, p1Energy = 7)
-    val host = HostReplica(initial)
-    val coordinator = QuestFieldCoordinator(host, campaignSeed = 501L)
-
-    val event = coordinator.attempt("field-explore-cmd", "p1", quest.questId, QuestFieldActionType.EXPLORE_SITE, 1_000)
-
-    assertEquals(6, host.state.players.getValue("p1").energy)
-    assertEquals(1, QuestFieldState.attemptCount(host.state, quest.questId))
-    val last = QuestFieldState.readLast(host.state, quest.questId)!!
-    assertEquals("p1", last.actorId)
-    assertEquals(QuestFieldActionType.EXPLORE_SITE, last.actionType)
-    assertEquals("1", event.payload["meta.questFieldEnergySpent"])
+private fun seedFor(
+    world: WorldState,
+    progress: QuestProgress,
+    actorId: String,
+    action: QuestFieldActionType,
+    wantSuccess: Boolean,
+): Long = (1L..10_000L).first { seed ->
+    QuestFieldResolver.resolve(world, progress, actorId, action, 1, seed).success == wantSuccess
 }
 ```
 
-For failure/success without depending on luck, select a deterministic campaign seed in the fixture by scanning a small bounded range in test setup using `QuestFieldResolver.resolve(...)` before constructing the coordinator. Use a helper like:
+Required success/failure tests:
 
 ```kotlin
-private fun seedFor(world: WorldState, progress: QuestProgress, actorId: String, action: QuestFieldActionType, wantSuccess: Boolean): Long =
-    (1L..10_000L).first { seed ->
-        QuestFieldResolver.resolve(world, progress, actorId, action, 1, seed).success == wantSuccess
-    }
+test("valid explore attempt spends one energy records state and emits exact progress on success") {
+    val quest = exploreQuest("field-explore")
+    val initial = hubWorld(quest, p1Energy = 7)
+    val progress = initial.questBoard.active.getValue(quest.questId)
+    val seed = seedFor(initial, progress, "p1", QuestFieldActionType.EXPLORE_SITE, true)
+    val host = HostReplica(initial)
+    val event = QuestFieldCoordinator(host, seed).attempt("field-explore-cmd", "p1", quest.questId, QuestFieldActionType.EXPLORE_SITE, 1_000)
+
+    assertEquals(6, host.state.players.getValue("p1").energy)
+    assertEquals(1, QuestFieldState.attemptCount(host.state, quest.questId))
+    assertEquals(1, host.state.questBoard.active.getValue(quest.questId).progress)
+    assertEquals("LOCATION_VISITED", event.payload["meta.questObjective"])
+    assertEquals("1", event.payload["meta.questFieldEnergySpent"])
+}
+
+test("failed collect attempt spends one energy records roll and gives zero progress") {
+    val quest = collectQuest("field-collect-fail")
+    val initial = hubWorld(quest, p2Energy = 6)
+    val progress = initial.questBoard.active.getValue(quest.questId)
+    val seed = seedFor(initial, progress, "p2", QuestFieldActionType.SEARCH_SUPPLIES, false)
+    val host = HostReplica(initial)
+    val event = QuestFieldCoordinator(host, seed).attempt("field-collect-fail-cmd", "p2", quest.questId, QuestFieldActionType.SEARCH_SUPPLIES, 2_000)
+
+    assertEquals(5, host.state.players.getValue("p2").energy)
+    assertEquals(1, QuestFieldState.attemptCount(host.state, quest.questId))
+    assertEquals(0, host.state.questBoard.active.getValue(quest.questId).progress)
+    assertEquals("false", event.payload["meta.questFieldSuccess"])
+    assertEquals(null, event.payload["meta.questObjective"])
+}
 ```
 
-Then assert failure spends PE and leaves progress 0; success emits the bound event and exact progress amount; same-target sibling remains 0; final success clamps and makes READY.
+Add same-target isolation by keeping a sibling active and proving its progress remains zero after a success.
 
-Add idempotency:
+Add either-player test where `acceptedBy = "p1"` but P2 successfully attempts.
+
+Add retry test:
 
 ```kotlin
-val first = coordinator.attempt("same-cmd", "p2", quest.questId, QuestFieldActionType.SEARCH_SUPPLIES, 2_000)
-val after = host.state
-val retry = coordinator.attempt("same-cmd", "p2", quest.questId, QuestFieldActionType.SEARCH_SUPPLIES, 2_001)
+val first = coordinator.attempt("same-command", "p2", quest.questId, QuestFieldActionType.SEARCH_SUPPLIES, 3_000)
+val afterFirst = host.state
+val retry = coordinator.attempt("same-command", "p2", quest.questId, QuestFieldActionType.SEARCH_SUPPLIES, 3_001)
 assertEquals(first.eventId, retry.eventId)
-assertEquals(after, host.state)
+assertEquals(afterFirst, host.state)
 ```
 
-Add collision with same command id but different quest/action and assert failure/no mutation.
+Add command collision by reusing the same command id with a different action/quest and assert failure with unchanged state.
 
-Add a table of invalid worlds: profile missing, either HP 0, actor energy 0, wrong island, READY quest, mismatched action, active structured combat, restored legacy combat, active voyage, active duel, HUNT binding, BOSS binding, incomplete arc, incomplete scenario. Every case must leave `host.state == invalid`.
+Add final-success test by starting an EXPLORE at progress 2/3 or COLLECT at 3/4 and choosing a success seed; assert READY_TO_TURN_IN.
 
-- [ ] **Step 2: Add failing cleanup tests to QuestEngineTest**
+For invalid-state table, construct each exact invalid world and assert rejection + no mutation for: missing profile, P1 HP 0, P2 HP 0, actor energy 0, wrong island, READY quest, mismatched action, structured combat, legacy combat, voyage, duel, HUNT binding, BOSS binding, incomplete arc, incomplete scenario when no arc exists.
 
-Seed exact field flags for two quests, resolve only one, and prove exact-key cleanup:
+- [ ] **Step 2: Write RED exact cleanup tests in QuestEngineTest**
 
-```kotlin
-val withFlags = QuestFieldState.writeAttemptResult(world, questA.questId, resultA)
-val withBoth = QuestFieldState.writeAttemptResult(withFlags, questB.questId, resultB)
-val turnedIn = QuestEngine.turnIn(readyWorld(withBoth, questA.questId), questA.questId)
-assertEquals(null, QuestFieldState.readLast(turnedIn, questA.questId))
-assertEquals(0, QuestFieldState.attemptCount(turnedIn, questA.questId))
-assertTrue(QuestFieldState.readLast(turnedIn, questB.questId) != null)
-```
-
-Repeat cleanup through `QuestEngine.fail(...)`. HUNT/BOSS with no field flags must remain behaviorally unchanged.
-
-- [ ] **Step 3: Run core suite and observe RED**
-
-```bash
-bash tools/run-core-tests.sh
-```
-
-Expected: missing `QuestFieldState`/`QuestFieldCoordinator` symbols.
-
-- [ ] **Step 4: Implement QuestFieldState with exact keys only**
-
-Create:
+The state helper API is:
 
 ```kotlin
 data class QuestFieldLastResult(
@@ -543,11 +601,7 @@ data class QuestFieldLastResult(
     val difficultyClass: Int,
     val success: Boolean,
 )
-```
 
-Use functions:
-
-```kotlin
 object QuestFieldState {
     fun attemptCount(world: WorldState, questId: String): Int
     fun readLast(world: WorldState, questId: String): QuestFieldLastResult?
@@ -556,73 +610,117 @@ object QuestFieldState {
 }
 ```
 
-`clear(...)` must remove exactly these nine keys constructed with the supplied quest id: attempt, last actor/action/check/roll/modifier/total/dc/success. Never scan with `endsWith(questId)`.
+Test two quests with field flags. Turn in only quest A and prove A keys are gone while B keys remain. Repeat using `QuestEngine.fail` for quest A. Also assert resolving a HUNT with no field flags changes no unrelated flags.
 
-- [ ] **Step 5: Implement QuestEngine cleanup**
-
-After normal transition/reward work in `turnIn`, return `QuestFieldState.clear(rewarded, questId)`. In `fail`, build the failed world then return `QuestFieldState.clear(failed, questId)`.
-
-- [ ] **Step 6: Implement QuestFieldCoordinator atomic attempt**
-
-Follow the existing coordinator pattern (`existing`, `commit`, `persist`) from `QuestHuntCoordinator`, with fingerprint:
-
-```text
-quest-field|<playerId>|<actionType>|<questId>
-```
-
-Validation order before mutation:
-
-```kotlin
-require(playerId == "p1" || playerId == "p2")
-val world = hostReplica.state
-val restored = StormglassPersistenceAdapter.decode(world)
-require(world.players["p1"]?.profile != null && world.players["p2"]?.profile != null)
-require((world.players["p1"]?.hp ?: 0) > 0 && (world.players["p2"]?.hp ?: 0) > 0)
-require((world.players[playerId]?.energy ?: 0) >= 1)
-require(world.activeCombat == null && restored.combat == null)
-require(world.activeVoyage == null)
-require(world.activeDuel == null)
-require(world.worldFlags[QuestHuntCoordinator.ACTIVE_QUEST_FLAG] == null)
-require(world.worldFlags[QuestBossCoordinator.ACTIVE_QUEST_FLAG] == null)
-require(world.activeArc == null || world.activeArc.phase == ArcPhase.COMPLETE)
-if (world.activeArc == null) require(restored.scenario.stage == ScenarioStage.COMPLETE)
-```
-
-Validate active quest/id/island/type/action. Either P1/P2 may attempt regardless of `acceptedBy`.
-
-Atomic mutation:
-
-```kotlin
-val ordinal = QuestFieldState.attemptCount(world, questId) + 1
-val resolved = QuestFieldResolver.resolve(world, progress, playerId, actionType, ordinal, campaignSeed)
-val player = world.players.getValue(playerId)
-var next = world.copy(players = world.players + (playerId to player.copy(energy = player.energy - 1)))
-next = QuestFieldState.writeAttemptResult(next, questId, resolved)
-if (resolved.success) {
-    next = QuestObjectiveRouter.apply(
-        next,
-        QuestObjectiveEvent(
-            type = resolved.objectiveEventType,
-            targetId = resolved.targetId,
-            islandId = resolved.islandId,
-            amount = resolved.progressAmount,
-            sourceQuestId = questId,
-        ),
-    )
-}
-```
-
-Commit only once. Metadata must include every field from spec section 18; success adds objective target/amount/new progress. Failure includes no objective metadata.
-
-- [ ] **Step 7: Run full core suite for GREEN**
+- [ ] **Step 3: Run RED**
 
 ```bash
 bash tools/run-core-tests.sh
 ```
 
-Expected: coordinator + cleanup tests pass with no HUNT/BOSS regression.
+Expected: unresolved `QuestFieldState` and `QuestFieldCoordinator`.
 
-- [ ] **Step 8: Commit Task 3**
+- [ ] **Step 4: Implement exact QuestFieldState keys**
+
+Use these exact key builders:
+
+```kotlin
+private fun attemptKey(id: String) = "quest.field.attempt.$id"
+private fun actorKey(id: String) = "quest.field.last.actor.$id"
+private fun actionKey(id: String) = "quest.field.last.action.$id"
+private fun checkKey(id: String) = "quest.field.last.check.$id"
+private fun rollKey(id: String) = "quest.field.last.roll.$id"
+private fun modifierKey(id: String) = "quest.field.last.modifier.$id"
+private fun totalKey(id: String) = "quest.field.last.total.$id"
+private fun dcKey(id: String) = "quest.field.last.dc.$id"
+private fun successKey(id: String) = "quest.field.last.success.$id"
+```
+
+`writeAttemptResult` writes all nine keys from the result. `clear` removes exactly those nine constructed keys; never scan/suffix-match arbitrary world flags.
+
+- [ ] **Step 5: Add QuestEngine cleanup**
+
+After the normal `turnIn` reward transition, return `QuestFieldState.clear(rewarded, questId)`. Build the normal failed world in `fail`, then return `QuestFieldState.clear(failed, questId)`.
+
+- [ ] **Step 6: Implement QuestFieldCoordinator**
+
+Constructor/API:
+
+```kotlin
+class QuestFieldCoordinator(
+    private val hostReplica: HostReplica,
+    private val campaignSeed: Long,
+    private val snapshotStore: SnapshotStore? = null,
+    private val durableStore: DurableCampaignStore? = null,
+) {
+    @Synchronized
+    fun attempt(
+        commandId: String,
+        playerId: String,
+        questId: String,
+        actionType: QuestFieldActionType,
+        hostTimestamp: Long,
+    ): CampaignEvent
+}
+```
+
+Fingerprint:
+
+```kotlin
+val fingerprint = "quest-field|$playerId|${actionType.name}|$questId"
+```
+
+Before any mutation validate:
+
+```kotlin
+require(playerId == "p1" || playerId == "p2") { "Unknown player $playerId" }
+val world = hostReplica.state
+val restored = StormglassPersistenceAdapter.decode(world)
+require(world.players["p1"]?.profile != null && world.players["p2"]?.profile != null) { "Both characters must be created before field actions" }
+require((world.players["p1"]?.hp ?: 0) > 0 && (world.players["p2"]?.hp ?: 0) > 0) { "Both players must be alive for field actions" }
+require((world.players[playerId]?.energy ?: 0) >= 1) { "Field action requires 1 PE" }
+require(world.activeCombat == null && restored.combat == null) { "Field action unavailable during combat" }
+require(world.activeVoyage == null) { "Field action unavailable during voyage" }
+require(world.activeDuel == null) { "Field action unavailable during duel" }
+require(world.worldFlags[QuestHuntCoordinator.ACTIVE_QUEST_FLAG] == null) { "Field action unavailable during hunt binding" }
+require(world.worldFlags[QuestBossCoordinator.ACTIVE_QUEST_FLAG] == null) { "Field action unavailable during boss binding" }
+require(world.activeArc == null || world.activeArc.phase == ArcPhase.COMPLETE) { "Field action requires completed arc" }
+if (world.activeArc == null) require(restored.scenario.stage == ScenarioStage.COMPLETE) { "Field action requires completed scenario" }
+```
+
+Validate active quest/status/current island/action-type mapping. `acceptedBy` does not restrict the actor.
+
+Atomic state change:
+
+```kotlin
+val ordinal = QuestFieldState.attemptCount(world, questId) + 1
+val resolved = QuestFieldResolver.resolve(world, progress, playerId, actionType, ordinal, campaignSeed)
+val actor = world.players.getValue(playerId)
+var next = world.copy(players = world.players + (playerId to actor.copy(energy = actor.energy - 1)))
+next = QuestFieldState.writeAttemptResult(next, questId, resolved)
+if (resolved.success) {
+    next = QuestObjectiveRouter.apply(
+        next,
+        QuestObjectiveEvent(
+            resolved.objectiveEventType,
+            resolved.targetId,
+            resolved.islandId,
+            resolved.progressAmount,
+            questId,
+        ),
+    )
+}
+```
+
+Commit one `ReplaceWorldStateCommand` only. Use existing coordinator `existing`/`persist` pattern. Metadata always contains action, quest id, attempt, actor, check, roll, modifier, total, dc, success and energy spent. On success add objective event/source/target/amount and resulting quest progress.
+
+- [ ] **Step 7: Run GREEN**
+
+```bash
+bash tools/run-core-tests.sh
+```
+
+- [ ] **Step 8: Commit**
 
 ```bash
 git add core/src/main/kotlin/grandlineduo/game/quest/QuestFieldState.kt \
@@ -636,7 +734,7 @@ git commit -m "feat: add authoritative quest field attempts"
 
 ---
 
-### Task 4: Route Field Actions Through the Existing Quest Wire Path
+### Task 4: Route Field Actions Through Existing QuestAction Wire Subtype
 
 **Files:**
 - Modify: `core/src/main/kotlin/grandlineduo/game/network/StormglassGameplayCommandHandler.kt`
@@ -644,66 +742,83 @@ git commit -m "feat: add authoritative quest field attempts"
 - Modify: `core/src/test/kotlin/grandlineduo/test/TestRunner.kt`
 
 **Interfaces:**
-- Consumes: `QuestFieldCoordinator.attempt(...)`, existing `GameplayWireCommand.QuestAction`.
-- Produces: `EXPLORE_SITE`/`SEARCH_SUPPLIES` handler routes with existing wire subtype 9.
+- Consumes: Task 3 coordinator, existing `GameplayWireCommand.QuestAction`.
+- Produces: handler routes for `EXPLORE_SITE` and `SEARCH_SUPPLIES`; no wire schema change.
 
-- [ ] **Step 1: Write handler RED tests and register them**
+- [ ] **Step 1: Write routing RED tests and register them**
 
-Register `QuestFieldRoutingTest.register()` after HUNT routing.
+Register `QuestFieldRoutingTest.register()` after `QuestHuntRoutingTest.register()`.
 
-Create tests:
+Use a hub fixture with an ACTIVE field quest and helper that selects a deterministic success seed using `QuestFieldResolver`.
 
 ```kotlin
-test("handler routes explore site through existing quest wire action") {
+test("handler routes explore site through existing quest action") {
     val quest = fieldQuest("route-explore", QuestType.EXPLORE)
     val initial = hubWorld(quest)
+    val seed = seedFor(initial, initial.questBoard.active.getValue(quest.questId), "p2", QuestFieldActionType.EXPLORE_SITE, true)
     val host = HostReplica(initial)
-    val handler = StormglassGameplayCommandHandler(host, seed = seedForAttempt(initial, quest, true))
-
-    val event = handler.handle(
+    val event = StormglassGameplayCommandHandler(host, seed).handle(
         GameplayWireCommand.QuestAction("route-explore-cmd", "p2", "EXPLORE_SITE", quest.questId, 1),
         1_000,
     )
-
     assertEquals("EXPLORE_SITE", event.payload["meta.questFieldAction"])
     assertEquals(1, QuestFieldState.attemptCount(host.state, quest.questId))
 }
+
+test("handler routes search supplies through existing quest action") {
+    val quest = fieldQuest("route-collect", QuestType.COLLECT)
+    val initial = hubWorld(quest)
+    val seed = seedFor(initial, initial.questBoard.active.getValue(quest.questId), "p1", QuestFieldActionType.SEARCH_SUPPLIES, true)
+    val host = HostReplica(initial)
+    val event = StormglassGameplayCommandHandler(host, seed).handle(
+        GameplayWireCommand.QuestAction("route-collect-cmd", "p1", "SEARCH_SUPPLIES", quest.questId, 1),
+        2_000,
+    )
+    assertEquals("SEARCH_SUPPLIES", event.payload["meta.questFieldAction"])
+}
+
+test("handler rejects field amount other than one without mutation") {
+    val quest = fieldQuest("route-amount", QuestType.EXPLORE)
+    val initial = hubWorld(quest)
+    val host = HostReplica(initial)
+    val result = runCatching {
+        StormglassGameplayCommandHandler(host, 701L).handle(
+            GameplayWireCommand.QuestAction("route-amount-cmd", "p1", "EXPLORE_SITE", quest.questId, 2),
+            3_000,
+        )
+    }
+    assertTrue(result.isFailure)
+    assertEquals(initial, host.state)
+}
 ```
 
-Mirror for `SEARCH_SUPPLIES`.
+Add a retry test: send the identical field command twice; assert same event id, no second PE spend and no second ordinal increment.
 
-Add:
+Add manual routing test: `PROGRESS` rejects EXPLORE/COLLECT but advances RESCUE/ESCORT/INVESTIGATE.
+
+Add regression tests invoking `START_HUNT` and `START_BOSS` and asserting their respective bindings/combat are still created.
+
+- [ ] **Step 2: Write negative integration tests for unrelated actions**
+
+With an ACTIVE COLLECT quest, execute:
 
 ```kotlin
-test("field action rejects forged amount other than one without mutation") { ... }
+handler.handle(GameplayWireCommand.WorldAction("buy-bandage", "p1", "SHOP_BUY", "bandage", 1), 4_000)
 ```
 
-and verify manual `PROGRESS` fails for EXPLORE/COLLECT while RESCUE/ESCORT/INVESTIGATE still route and progress.
+and assert collect progress unchanged. Create a second world via `InventoryEngine.grant(initial, "p1", "bandage", 3)` and assert quest progress unchanged. With ACTIVE EXPLORE, execute a normal scenario/arc transition in its existing integration fixture and assert quest progress unchanged. Do not add objective calls to any of those paths.
 
-Regression calls must explicitly assert `START_HUNT` still creates HUNT binding/combat and `START_BOSS` still creates BOSS binding/combat.
-
-- [ ] **Step 2: Add negative integration routing tests**
-
-Using handler commands, prove these do not change field quest progress:
-
-```kotlin
-GameplayWireCommand.WorldAction(..., "SHOP_BUY", "bandage", 1)
-GameplayWireCommand.InventoryAction(..., "USE", "bandage", 1)
-```
-
-For direct `InventoryEngine.grant`/scenario reward/campaign arrival, compare quest progress before/after the ordinary authoritative transition in the most local existing integration fixture. Do not insert objective routing into these paths.
-
-- [ ] **Step 3: Run core suite to observe RED**
+- [ ] **Step 3: Run RED**
 
 ```bash
 bash tools/run-core-tests.sh
 ```
 
-Expected: unknown quest actions because handler does not own field coordinator yet.
+Expected: unknown field quest actions or wrong fingerprint ownership.
 
-- [ ] **Step 4: Implement handler ownership and routing**
+- [ ] **Step 4: Implement handler ownership/routing**
 
-Add imports and instance:
+Instantiate:
 
 ```kotlin
 private val questFieldCoordinator = QuestFieldCoordinator(
@@ -714,14 +829,12 @@ private val questFieldCoordinator = QuestFieldCoordinator(
 )
 ```
 
-Extend `coordinatorOwnsFingerprint` for `QuestAction` whose uppercase action is `EXPLORE_SITE` or `SEARCH_SUPPLIES`, so exact retries are returned by the coordinator fingerprint rather than the generic `quest-action|...` fingerprint path.
-
-In the QuestAction routing block:
+Treat `EXPLORE_SITE`/`SEARCH_SUPPLIES` QuestAction as coordinator-owned fingerprints alongside START_HUNT/START_BOSS. Then route:
 
 ```kotlin
 when (command.actionType.uppercase()) {
-    "START_BOSS" -> return questBossCoordinator.start(...)
-    "START_HUNT" -> return questHuntCoordinator.start(...)
+    "START_BOSS" -> return questBossCoordinator.start(command.commandId, command.actorId, command.questId, hostTimestamp)
+    "START_HUNT" -> return questHuntCoordinator.start(command.commandId, command.actorId, command.questId, hostTimestamp)
     "EXPLORE_SITE" -> {
         require(command.amount == 1) { "Field quest action amount must be exactly one" }
         return questFieldCoordinator.attempt(command.commandId, command.actorId, command.questId, QuestFieldActionType.EXPLORE_SITE, hostTimestamp)
@@ -734,17 +847,15 @@ when (command.actionType.uppercase()) {
 }
 ```
 
-Do not modify `GameplayWireCommand`, `WireCodec`, `Protocol.kt` or subtype assignments.
+Do not modify `GameplayWireCommand.kt`, `WireCodec.kt` or `Protocol.kt`.
 
-- [ ] **Step 5: Run full core suite for GREEN**
+- [ ] **Step 5: Run GREEN**
 
 ```bash
 bash tools/run-core-tests.sh
 ```
 
-Expected: new routing tests + HUNT/BOSS/wire codec regressions pass.
-
-- [ ] **Step 6: Commit Task 4**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add core/src/main/kotlin/grandlineduo/game/network/StormglassGameplayCommandHandler.kt \
@@ -755,7 +866,7 @@ git commit -m "feat: route field quest actions authoritatively"
 
 ---
 
-### Task 5: Present Field Actions, Energy Requirements and Last D20; Preserve SOLO Semantics
+### Task 5: Present Field Actions, PE Requirement and Last D20; Preserve SOLO Behavior
 
 **Files:**
 - Modify: `core/src/main/kotlin/grandlineduo/appshell/GamePresenter.kt`
@@ -763,17 +874,13 @@ git commit -m "feat: route field quest actions authoritatively"
 - Modify: `core/src/test/kotlin/grandlineduo/appshell/GameSessionCoordinatorTest.kt`
 
 **Interfaces:**
-- Consumes: `QuestFieldState.readLast(...)`, existing generic `QUEST` action dispatch.
-- Produces: correct EXPLORE/COLLECT actions and authoritative result text; no new screen/dispatcher.
+- Consumes: `QuestFieldState.readLast` and existing generic `QUEST` dispatcher.
+- Produces: correct actions/labels/body; no new screen or Android action kind.
 
 - [ ] **Step 1: Write presenter RED tests**
 
-Replace the old migration test with one proving only RESCUE/ESCORT/INVESTIGATE keep `PROGRESS`.
-
-Add:
-
 ```kotlin
-test("explore and collect expose field actions and never manual progress") {
+test("explore and collect expose field actions without manual progress") {
     val explore = quest("explore", QuestRarity.COMMON, 3, QuestType.EXPLORE)
     val collect = quest("collect", QuestRarity.COMMON, 4, QuestType.COLLECT)
     val world = profiledWorld().copy(
@@ -789,39 +896,52 @@ test("explore and collect expose field actions and never manual progress") {
 }
 ```
 
-Add zero-energy case: actor energy 0 => neither field action offered and body contains `1 PE` requirement.
+Add partial EXPLORE label `Continuar exploração`, fresh COLLECT label `Buscar suprimentos`, READY-only TURN_IN, and remaining RESCUE/ESCORT/INVESTIGATE PROGRESS assertions.
 
-Create authoritative last result via `QuestFieldState.writeAttemptResult(...)` and assert body contains exactly the key pieces:
+Zero PE test:
+
+```kotlin
+test("zero energy hides field action and explains one pe requirement") {
+    val explore = quest("explore-zero", QuestRarity.COMMON, 3, QuestType.EXPLORE)
+    val base = profiledWorld()
+    val p1 = base.players.getValue("p1")
+    val world = base.copy(
+        players = base.players + ("p1" to p1.copy(energy = 0)),
+        questBoard = QuestBoardState(active = mapOf(explore.questId to QuestProgress(explore, QuestStatus.ACTIVE, 0, "p1"))),
+    )
+    val view = GamePresenter.presentQuests(world, "p1")
+    assertTrue(view.actions.none { it.id.startsWith("EXPLORE_SITE|") })
+    assertTrue(view.body.contains("1 PE"))
+}
+```
+
+Last roll test: build a `QuestFieldAttemptResult` with roll 14, modifier 3, total 17, CD 15, success true, write it with `QuestFieldState.writeAttemptResult`, and assert body contains:
 
 ```text
 Último teste: P2 • INT + MEDICINE • d20 14 + 3 = 17 vs CD 15 • SUCESSO • -1 PE
 ```
 
-Use a manually constructed `QuestFieldAttemptResult` to keep UI test deterministic.
+Add a negative modifier fixture and assert rendering uses `- 1`, not `+ -1`.
 
-READY EXPLORE/COLLECT must show `TURN_IN` and no field action.
+- [ ] **Step 2: Write SOLO RED test**
 
-- [ ] **Step 2: Add SOLO RED test**
-
-In `GameSessionCoordinatorTest`, persist a SOLO hub world with one ACTIVE EXPLORE quest, P1/P2 complete, and known P1/P2 energy. Resume, call:
+Persist/resume a SOLO hub world with ACTIVE EXPLORE, P1 energy 8 and P2 energy 9. Call:
 
 ```kotlin
 session.submitQuestAction("EXPLORE_SITE", quest.questId)
 ```
 
-Assert P1 energy drops by one, P2 energy is unchanged, attempt count becomes one, and no automatic second field attempt occurs. This proves field actions are single-actor and the companion planner is not invoked to farm progress.
+Assert P1 energy becomes 7, P2 remains 9, attempt count is exactly 1, and there is only one new field-attempt event. This proves the companion planner does not spend P2 energy automatically.
 
-- [ ] **Step 3: Run core suite and observe RED**
+- [ ] **Step 3: Run RED**
 
 ```bash
 bash tools/run-core-tests.sh
 ```
 
-Expected: presenter still emits generic PROGRESS for EXPLORE/COLLECT and no last-roll line.
+- [ ] **Step 4: Implement presenter field behavior**
 
-- [ ] **Step 4: Implement presenter behavior**
-
-Inside ACTIVE quest action selection:
+ACTIVE actions:
 
 ```kotlin
 QuestType.EXPLORE -> if ((world.players[actorId]?.energy ?: 0) > 0) {
@@ -836,29 +956,29 @@ QuestType.RESCUE, QuestType.ESCORT, QuestType.INVESTIGATE ->
     add(GameAction("PROGRESS|${progress.definition.questId}|1", "Registrar progresso • ${progress.definition.title}", "QUEST"))
 ```
 
-In the active quest body, append zero-PE hint for field types and append last roll when `QuestFieldState.readLast(...) != null`:
+When an ACTIVE field quest is shown to an actor with 0 PE, append `\nRequer 1 PE para uma nova tentativa.`.
+
+Append last roll for ACTIVE or READY field quests using `QuestFieldState.readLast`. Use:
 
 ```kotlin
-append("\nÚltimo teste: ${last.actorId.uppercase()} • ${last.checkId} • d20 ${last.roll} + ${last.modifier} = ${last.total} vs CD ${last.difficultyClass} • ${if (last.success) "SUCESSO" else "FALHA"} • -1 PE")
+private fun signedModifier(value: Int): String = if (value >= 0) "+ $value" else "- ${-value}"
 ```
 
-If modifier is negative, render the arithmetic without malformed `+ -1`; use a helper such as:
+and:
 
 ```kotlin
-private fun signedAdd(value: Int): String = if (value >= 0) "+ $value" else "- ${-value}"
+append("\nÚltimo teste: ${last.actorId.uppercase()} • ${last.checkId} • d20 ${last.roll} ${signedModifier(last.modifier)} = ${last.total} vs CD ${last.difficultyClass} • ${if (last.success) "SUCESSO" else "FALHA"} • -1 PE")
 ```
 
-No new Android screen or action kind.
+No session coordinator production change is expected; `submitQuestAction` already sends a single command and does not call `autoPlayCompanion`.
 
-- [ ] **Step 5: Run full core suite for GREEN**
+- [ ] **Step 5: Run GREEN**
 
 ```bash
 bash tools/run-core-tests.sh
 ```
 
-Expected: presenter + SOLO tests pass; HUNT companion test remains green.
-
-- [ ] **Step 6: Commit Task 5**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add core/src/main/kotlin/grandlineduo/appshell/GamePresenter.kt \
@@ -869,63 +989,74 @@ git commit -m "feat: present explore and collect field checks"
 
 ---
 
-### Task 6: Prove EXPLORE/COLLECT Reconnect and Exactly-Once Semantics Over Real TCP
+### Task 6: Real TCP Reconnect, Failure Path and Exactly-Once Rewards
 
 **Files:**
 - Create: `core/src/test/kotlin/grandlineduo/game/quest/QuestFieldLanIntegrationTest.kt`
 - Modify: `core/src/test/kotlin/grandlineduo/test/TestRunner.kt`
 
 **Interfaces:**
-- Consumes: handler field routing, `LanHostServer`, `LanClientConnection`, `ClientReplica`, `SnapshotStore`, `CanonicalStateHasher`.
-- Produces: end-to-end loopback TCP evidence; ideally no production code changes.
+- Consumes: field handler route, `LanHostServer`, `LanClientConnection`, `ClientReplica`, `SnapshotStore`, `CanonicalStateHasher`.
+- Produces: end-to-end reconnect evidence; production should not change unless this test reveals a real bug.
 
-- [ ] **Step 1: Write the real TCP lifecycle test and register it**
+- [ ] **Step 1: Register and write the loopback TCP test**
 
-Model the fixture after `QuestHuntLanIntegrationTest`: create host/client temp snapshot stores, host replica + real `LanHostServer`, P2 `LanClientConnection`, complete wounded players and enough energy (for example 40 PE each in the fixture, while retaining valid profile max values only if model invariants allow; otherwise use maxEnergy from a high-CON/VON test profile and an explicit safe attempt bound that fits it).
+Register `QuestFieldLanIntegrationTest.register()` after `QuestHuntLanIntegrationTest.register()`.
 
-Activate:
-- EXPLORE main + same-target EXPLORE sibling;
-- COLLECT main + same-target COLLECT sibling.
+Build a HOST_COOP hub fixture with:
+- complete wounded P1/P2;
+- `energy = maxEnergy = 40` for both test `PlayerState`s;
+- ACTIVE EXPLORE main + same-target EXPLORE sibling;
+- ACTIVE COLLECT main + same-target COLLECT sibling;
+- scenario COMPLETE;
+- normal shop/inventory state.
 
-Use a deterministic campaign seed selected before runtime so the sequence includes at least one failure and enough successes within a bounded number of attempts.
+Pick a campaign seed by scanning `1L..10_000L` before server creation until the first bounded sequence contains at least one failure and enough successes for both contracts. The helper must inspect `QuestFieldResolver.resolve` using incrementing attempt ordinals and stop at 30 attempts.
 
-Test skeleton:
+Use this helper for repeated TCP attempts:
 
 ```kotlin
-test("P2 field objectives reconnect converge and reward exactly once over real TCP") {
-    // connect P2
-    // send EXPLORE_SITE once
-    // assert energy -1, attempt ordinal 1, last flags, progress, host/client hash convergence
-    // disconnect P2
-    // let host execute one authoritative field attempt while P2 snapshot is stale
-    // recreate ClientReplica from stale clientStore snapshot and reconnect
-    // assert exact restored energy/attempt/last flags/progress/hash
-    // continue EXPLORE attempts until READY_TO_TURN_IN with <= SAFE_ATTEMPT_BOUND
-    // assert sibling EXPLORE remains 0
-    // continue COLLECT attempts until READY_TO_TURN_IN
-    // assert sibling COLLECT remains 0
-    // prove at least one accepted D20 failure was observed and spent energy without progress
-    // perform SHOP_BUY bandage and assert COLLECT progress unchanged
-    // TURN_IN both exactly once
-    // retry exact turn-in command and one previous exact field-attempt command id
-    // assert no duplicate reward, PE spend, ordinal or progress
-    // assert host == client and canonical hashes + snapshots converge
+private fun attemptUntilReady(
+    prefix: String,
+    action: String,
+    questId: String,
+    host: HostReplica,
+    client: LanClientConnection,
+    clientReplica: ClientReplica,
+    maxAttempts: Int = 30,
+): List<Boolean> {
+    val outcomes = mutableListOf<Boolean>()
+    var step = 1
+    while (host.state.questBoard.active.getValue(questId).status == QuestStatus.ACTIVE && step <= maxAttempts) {
+        client.sendGameplay(GameplayWireCommand.QuestAction("$prefix-$step", "p2", action, questId, 1))
+        outcomes += QuestFieldState.readLast(host.state, questId)!!.success
+        assertEquals(host.state, clientReplica.state)
+        assertEquals(CanonicalStateHasher.hash(host.state), CanonicalStateHasher.hash(clientReplica.state))
+        step++
+    }
+    assertEquals(QuestStatus.READY_TO_TURN_IN, host.state.questBoard.active.getValue(questId).status)
+    return outcomes
 }
 ```
 
-Track successes based on authoritative quest progress, not assumed roll sequence. Use a loop with an explicit max such as 30 attempts per contract and fail the test if READY is not reached.
+Main test sequence:
+1. Connect P2 from initial state.
+2. P2 sends first EXPLORE_SITE attempt.
+3. Assert host/client convergence for P2 energy, attempt count, last result, progress and canonical hash.
+4. Disconnect P2.
+5. Host executes one field attempt directly through handler while client snapshot is stale.
+6. Recreate `ClientReplica` from `clientStore.loadLatestValid()` and reconnect.
+7. Assert exact recovery of energy, attempt count, last flags, progress and hash.
+8. Continue EXPLORE via `attemptUntilReady`; sibling EXPLORE stays 0.
+9. Continue COLLECT via `attemptUntilReady`; sibling COLLECT stays 0.
+10. Assert the combined outcome lists contain at least one `false` and required successful progress was reached.
+11. Execute `SHOP_BUY bandage`; assert COLLECT progress unchanged.
+12. TURN_IN EXPLORE and COLLECT; capture party Berries after each.
+13. Send each exact TURN_IN command again; Berries do not change.
+14. Resend one exact earlier field command id; energy, attempt count and progress do not change.
+15. Assert host/client state + canonical hashes + host/client saved snapshots converge.
 
-- [ ] **Step 2: Run the core suite**
-
-```bash
-bash tools/run-core-tests.sh
-```
-
-If GREEN immediately, Task 6 is test-only and production needs no reconnect changes. If it fails, invoke `superpowers:systematic-debugging` before modifying production and identify whether the bug is persistence, generic retry routing, field fingerprint ownership or fixture error.
-
-- [ ] **Step 3: Verify persisted canonical convergence explicitly**
-
-The test must contain:
+Use these final assertions:
 
 ```kotlin
 assertEquals(host.state, clientReplica.state)
@@ -934,9 +1065,15 @@ assertEquals(host.state, hostStore.loadLatestValid())
 assertEquals(clientReplica.state, clientStore.loadLatestValid())
 ```
 
-and exact field-state assertions after reconnect.
+- [ ] **Step 2: Run full core suite**
 
-- [ ] **Step 4: Commit Task 6**
+```bash
+bash tools/run-core-tests.sh
+```
+
+If it fails unexpectedly, invoke `superpowers:systematic-debugging` before modifying production. Identify whether the cause is test fixture, persistence, generic retry routing, field fingerprint ownership or state cleanup.
+
+- [ ] **Step 3: Commit after GREEN**
 
 ```bash
 git add core/src/test/kotlin/grandlineduo/game/quest/QuestFieldLanIntegrationTest.kt \
@@ -949,47 +1086,42 @@ git commit -m "test: cover field quest reconnect over tcp"
 ### Task 7: Final Regression, Compatibility, Android Build and PR Evidence
 
 **Files:**
-- Verify/no edit: `core/src/main/kotlin/grandlineduo/game/combat/CombatEngine.kt`
-- Verify/no edit: `core/src/main/kotlin/grandlineduo/game/quest/QuestBossFactory.kt`
-- Verify/no edit: `core/src/main/kotlin/grandlineduo/game/quest/QuestBossCoordinator.kt`
-- Verify/no edit: `core/src/main/kotlin/grandlineduo/core/network/Protocol.kt`
-- Verify/no edit: `core/src/main/kotlin/grandlineduo/core/network/WireCodec.kt`
-- Verify/no edit: `core/src/main/kotlin/grandlineduo/core/persistence/WorldStateCodec.kt`
-- Modify: `docs/superpowers/plans/2026-08-24-explore-collect-field-objectives.md`
-- Modify: PR #4 body/title after observed evidence.
+- Verify unchanged: `core/src/main/kotlin/grandlineduo/game/combat/CombatEngine.kt`
+- Verify unchanged: `core/src/main/kotlin/grandlineduo/game/quest/QuestBossFactory.kt`
+- Verify unchanged: `core/src/main/kotlin/grandlineduo/game/quest/QuestBossCoordinator.kt`
+- Verify constants: `core/src/main/kotlin/grandlineduo/core/network/Protocol.kt`
+- Verify subtype assignments: `core/src/main/kotlin/grandlineduo/core/network/WireCodec.kt`
+- Verify snapshot version: `core/src/main/kotlin/grandlineduo/core/persistence/WorldStateCodec.kt`
+- Modify: this plan with exact observed verification values.
+- Modify: PR #4 title/body after evidence exists.
 
 **Interfaces:**
 - Consumes: all completed tasks.
-- Produces: fresh exact-head evidence and clean open PR; no merge.
+- Produces: fresh exact-head evidence and a clean open PR; no merge.
 
-- [ ] **Step 1: Run fresh full core suite on the source head**
+- [ ] **Step 1: Run a fresh full core suite on the source head**
 
 ```bash
 bash tools/run-core-tests.sh
 ```
 
-Record the observed `RESULT N/N passed` exactly. Do not reuse earlier counts.
+Copy the exact final `RESULT` line into the verification notes. Confirm the output contains passing HUNT, quest BOSS, PvP, arc/scenario, QuestFieldCoordinator and QuestFieldLanIntegration tests.
 
-Explicitly inspect the output for passing HUNT, quest BOSS, PvP, arc/scenario, field coordinator and real TCP field reconnect tests.
+- [ ] **Step 2: Verify source compatibility invariants**
 
-- [ ] **Step 2: Verify compatibility invariants from source**
+Read source and record:
+- `PROTOCOL_VERSION` is 5.
+- QuestAction encode/decode subtype is 9.
+- DuelAction encode/decode subtype is 10.
+- `WorldStateCodec.CURRENT_VERSION` is 11.
 
-Confirm:
+Compare `CombatEngine.kt` blob with `main`. Compare `QuestBossFactory.kt` and `QuestBossCoordinator.kt` blobs with baseline commit `00267140668b90c75a3268c3b72e3b21ebefea80`. They must match.
 
-```text
-PROTOCOL_VERSION == 5
-QuestAction wire subtype == 9
-DuelAction wire subtype == 10
-WorldStateCodec CURRENT_VERSION == 11
-```
-
-Compare `CombatEngine.kt` blob to `main`; compare QuestBoss factory/coordinator blobs to pre-field head `00267140668b90c75a3268c3b72e3b21ebefea80`. They must be unchanged.
-
-Also compare the field feature head against its baseline to prove no `GameplayWireCommand.kt`, `WireCodec.kt` or snapshot schema change unless a test-driven bug fix explicitly required it; such a change would violate the approved spec and must stop completion for design review.
+Compare baseline `926a89794f9fc1ac9be91c2496e98372cb7f42fe` to implementation source head and verify `GameplayWireCommand.kt`, `WireCodec.kt`, `Protocol.kt` and `WorldStateCodec.kt` were not modified. If any is modified, stop completion because it violates the approved spec.
 
 - [ ] **Step 3: Build Android from the exact current source**
 
-Preferred local commands:
+Preferred commands:
 
 ```bash
 gradle --no-daemon --stacktrace :app:assembleDebug
@@ -997,49 +1129,26 @@ test -s app/build/outputs/apk/debug/app-debug.apk
 sha256sum app/build/outputs/apk/debug/app-debug.apk
 ```
 
-If the current environment cannot build Android locally, create a temporary PR workflow that checks out the exact source, runs `bash tools/run-core-tests.sh`, then `gradle --no-daemon --stacktrace :app:assembleDebug`, verifies non-empty APK and prints SHA-256. After success, remove the workflow and compare build-tested source to final head; only workflow removal + verification docs may differ, never `app/`/`core/`.
+If local Android build is unavailable, create the same temporary PR verification workflow pattern already used on this branch: checkout exact source, JDK 17, Gradle 9.5/Android SDK setup, run core suite, run `:app:assembleDebug`, verify non-empty APK and print SHA-256. After success, delete the temporary workflow.
 
-- [ ] **Step 4: Append observed verification evidence to this plan**
+- [ ] **Step 4: Append exact observed evidence to this plan**
 
-Add a section containing only observed values:
+Do not add a template. Write the actual branch/source SHA, Core Actions run number/id/job id/PR merge SHA, exact `RESULT` line, Android source SHA/run/job/PR merge SHA, exact `BUILD SUCCESSFUL` line, APK SHA-256 and exact post-build changed-file comparison. Each value must come from observed tool/log output in this execution.
 
-```markdown
-## Observed Verification
-- Final/source head: `<sha>`
-- Core CI/run/job: `<observed ids>`
-- Core result: `N/N passed`
-- Android source head: `<sha>`
-- Android run/job: `<observed ids>`
-- Gradle: `BUILD SUCCESSFUL`
-- APK SHA-256: `<observed hash>`
-- Post-build diff: `<exact files>`; no `app/`/`core/` changes
-```
+- [ ] **Step 5: Prove no post-build code drift**
 
-Do not write placeholders in the committed final version; fill them only after values exist.
+Compare the Android build-tested source SHA to the final clean head. The only allowed post-build changes are deletion of the temporary Android workflow and this verification-note update. Assert the comparison contains no file under `app/` or `core/`.
 
-- [ ] **Step 5: Run final exact-head Core CI after documentation/workflow cleanup**
+- [ ] **Step 6: Run final exact-head Core CI**
 
-Require a successful Core CI associated with the final clean branch head. Read the job log and capture the exact `RESULT N/N passed` plus PR merge SHA checked out by Actions.
+Require a successful Core CI associated with the final clean branch head. Read its job log and record the exact `RESULT` line and PR merge SHA checked out by Actions.
 
-- [ ] **Step 6: Update PR #4 without merging**
+- [ ] **Step 7: Update PR #4 without merging**
 
-Update title/body to include:
-- automatic EXPLORE/COLLECT field objectives;
-- D20 formulas and CD table;
-- 1 PE per accepted attempt;
-- visible last roll;
-- no shop/inventory/arrival shortcuts;
-- real TCP reconnect evidence;
-- exact final Core + Android evidence;
-- compatibility invariants;
-- statement that PR remains intentionally open/unmerged.
+Update title/body with the implemented EXPLORE/COLLECT field actions, exact D20 formulas/CDs, 1 PE rule, visible last roll, negative integration boundaries, real TCP reconnect result, exact final Core/Android evidence and compatibility invariants. State that the PR remains intentionally open/unmerged.
 
-Do not call merge or auto-merge.
+Do not call merge, auto-merge or delete the branch.
 
-- [ ] **Step 7: Final verification-before-completion gate**
+- [ ] **Step 8: Verification-before-completion and branch preservation**
 
-Invoke `superpowers:verification-before-completion`. Verify the final head again before claiming completion. If any check is pending/failing, report partial completion rather than claiming success.
-
-- [ ] **Step 8: Preserve branch**
-
-Use `superpowers:finishing-a-development-branch`. The intended integration choice for this work is to keep `feature/quest-contract-system` / PR #4 open for later handling; do not merge or delete it without an explicit new user instruction.
+Invoke `superpowers:verification-before-completion` and use fresh evidence from Steps 1-6. Then invoke `superpowers:finishing-a-development-branch`; preserve `feature/quest-contract-system` and PR #4 open unless the user gives a new explicit integration instruction.
