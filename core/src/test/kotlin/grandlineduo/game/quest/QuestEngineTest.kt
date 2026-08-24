@@ -22,7 +22,7 @@ object QuestEngineTest {
                     factionStandingDelta = 7,
                     worldFlag = "QUEST_DOCK_RAID_COMPLETE",
                 ),
-            ).copy(type = QuestType.COLLECT, targetId = "medical-supplies")
+            ).copy(type = QuestType.RESCUE, targetId = "captured-sailor")
             var world = worldWithOffer(quest)
 
             world = QuestEngine.accept(world, quest.questId, "p2")
@@ -102,20 +102,22 @@ object QuestEngineTest {
             assertEquals(QuestStatus.ACTIVE, accepted.questBoard.active.getValue(quest.questId).status)
         }
 
-        test("manual quest progress rejects hunt while migration types still work") {
-            val hunt = sampleQuest()
-            val acceptedHunt = QuestEngine.accept(worldWithOffer(hunt), hunt.questId, "p1")
-            assertTrue(runCatching { QuestEngine.progress(acceptedHunt, hunt.questId, 1) }.isFailure)
-
-            listOf(
-                QuestType.EXPLORE,
-                QuestType.COLLECT,
-                QuestType.RESCUE,
-                QuestType.ESCORT,
-                QuestType.INVESTIGATE,
-            ).forEach { type ->
+        test("manual quest progress rejects automated types while remaining migration types still work") {
+            listOf(QuestType.HUNT, QuestType.BOSS, QuestType.EXPLORE, QuestType.COLLECT).forEach { type ->
                 val quest = sampleQuest().copy(
-                    questId = "migration-${type.name.lowercase()}",
+                    questId = "manual-reject-${type.name.lowercase()}",
+                    type = type,
+                    targetId = "target-${type.name.lowercase()}",
+                    requiredAmount = if (type == QuestType.BOSS) 1 else 3,
+                )
+                val accepted = QuestEngine.accept(worldWithOffer(quest), quest.questId, "p1")
+                assertTrue(runCatching { QuestEngine.progress(accepted, quest.questId, 1) }.isFailure)
+                assertEquals(0, accepted.questBoard.active.getValue(quest.questId).progress)
+            }
+
+            listOf(QuestType.RESCUE, QuestType.ESCORT, QuestType.INVESTIGATE).forEach { type ->
+                val quest = sampleQuest().copy(
+                    questId = "manual-keep-${type.name.lowercase()}",
                     type = type,
                     targetId = "target-${type.name.lowercase()}",
                 )
@@ -139,16 +141,20 @@ object QuestEngineTest {
             assertTrue(runCatching { QuestEngine.progressObjective(advanced, hunt.questId, 1) }.isFailure)
         }
 
-        test("objective progress rejects boss and migration quest types") {
-            val types = listOf(
-                QuestType.BOSS,
-                QuestType.EXPLORE,
-                QuestType.COLLECT,
-                QuestType.RESCUE,
-                QuestType.ESCORT,
-                QuestType.INVESTIGATE,
-            )
-            types.forEach { type ->
+        test("objective progress accepts active hunt explore and collect only") {
+            listOf(QuestType.HUNT, QuestType.EXPLORE, QuestType.COLLECT).forEach { type ->
+                val quest = sampleQuest().copy(
+                    questId = "objective-${type.name.lowercase()}",
+                    type = type,
+                    targetId = "objective-${type.name.lowercase()}",
+                    requiredAmount = 3,
+                )
+                val accepted = QuestEngine.accept(worldWithOffer(quest), quest.questId, "p1")
+                val advanced = QuestEngine.progressObjective(accepted, quest.questId, 1)
+                assertEquals(1, advanced.questBoard.active.getValue(quest.questId).progress)
+            }
+
+            listOf(QuestType.BOSS, QuestType.RESCUE, QuestType.ESCORT, QuestType.INVESTIGATE).forEach { type ->
                 val quest = sampleQuest().copy(
                     questId = "objective-reject-${type.name.lowercase()}",
                     type = type,
