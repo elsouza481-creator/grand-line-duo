@@ -11,6 +11,7 @@ import grandlineduo.game.character.Skill
 import grandlineduo.game.combat.CombatActionType
 import grandlineduo.game.quest.QuestBoardState
 import grandlineduo.game.quest.QuestDefinition
+import grandlineduo.game.quest.QuestFieldState
 import grandlineduo.game.quest.QuestProgress
 import grandlineduo.game.quest.QuestRarity
 import grandlineduo.game.quest.QuestReward
@@ -72,7 +73,7 @@ object GameSessionCoordinatorTest {
 
                 session.submitQuestAction("REFRESH")
                 val offered = session.worldState().questBoard.offers.values.first {
-                    it.type != QuestType.HUNT && it.type != QuestType.BOSS
+                    it.type in setOf(QuestType.RESCUE, QuestType.ESCORT, QuestType.INVESTIGATE)
                 }
                 val berriesBefore = session.worldState().partyBerries
 
@@ -229,6 +230,65 @@ object GameSessionCoordinatorTest {
                     "SOLO planner must answer the structured HUNT combat instead of leaving only P1 locked",
                 )
                 assertEquals(berriesBefore, afterWorld.partyBerries)
+            }
+        }
+
+        test("solo field quest spends only p1 energy and does not autoplay companion") {
+            val root = Files.createTempDirectory("gld-session-quest-field")
+            val campaignId = "session-quest-field"
+            val explore = QuestDefinition(
+                questId = "solo-explore-1",
+                islandId = "stormglass-cay",
+                title = "Cartografar ruínas esquecidas",
+                type = QuestType.EXPLORE,
+                rarity = QuestRarity.COMMON,
+                issuerFaction = "LOCALS",
+                targetId = "forgotten-ruins",
+                requiredAmount = 3,
+                reward = QuestReward(berries = 2_500),
+            )
+            val p1Profile = (CharacterCreation.create(validDraft("Arlen")) as CharacterCreationResult.Success).profile
+            val p2Profile = (CharacterCreation.create(validDraft("Mako")) as CharacterCreationResult.Success).profile
+            val base = WorldState(
+                campaignId = campaignId,
+                islandId = "stormglass-cay",
+                partyBerries = 1_234L,
+                players = mapOf(
+                    "p1" to PlayerState("p1", p1Profile.name, p1Profile.maxHp, p1Profile.maxHp, 0, 8, 8, p1Profile),
+                    "p2" to PlayerState("p2", p2Profile.name, p2Profile.maxHp, p2Profile.maxHp, 0, 9, 9, p2Profile),
+                ),
+                questBoard = QuestBoardState(active = mapOf(
+                    explore.questId to QuestProgress(explore, QuestStatus.ACTIVE, 0, "p1"),
+                )),
+                worldFlags = mapOf(
+                    "campaign.mode" to "SOLO",
+                    "campaign.chapter" to "0",
+                    "reward.stormglass" to "true",
+                ),
+            )
+            val scenario = StormglassPersistenceAdapter.decode(base).scenario.copy(stage = ScenarioStage.COMPLETE)
+            val initial = StormglassPersistenceAdapter.encode(base, scenario, null)
+            DurableCampaignStore(root.resolve(campaignId)).initialize(initial)
+
+            GameSessionCoordinator(root).use { session ->
+                session.resume(campaignId)
+                val berriesBefore = session.worldState().partyBerries
+
+                session.submitQuestAction("EXPLORE_SITE", explore.questId)
+
+                val after = session.worldState()
+                assertEquals(7, after.players.getValue("p1").energy)
+                assertEquals(9, after.players.getValue("p2").energy)
+                assertEquals(1, QuestFieldState.attemptCount(after, explore.questId))
+                assertEquals(berriesBefore, after.partyBerries)
+                assertTrue(QuestFieldState.readLast(after, explore.questId) != null)
+            }
+
+            GameSessionCoordinator(root).use { resumed ->
+                resumed.resume(campaignId)
+                assertEquals(1, QuestFieldState.attemptCount(resumed.worldState(), explore.questId))
+                assertEquals(7, resumed.worldState().players.getValue("p1").energy)
+                assertEquals(9, resumed.worldState().players.getValue("p2").energy)
             }
         }
 
