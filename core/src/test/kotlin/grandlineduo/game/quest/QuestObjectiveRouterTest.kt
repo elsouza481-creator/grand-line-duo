@@ -7,8 +7,8 @@ import grandlineduo.test.test
 object QuestObjectiveRouterTest {
     fun register() {
         test("bound enemy defeated advances only the source hunt") {
-            val first = hunt("hunt-a")
-            val second = hunt("hunt-b")
+            val first = objective("hunt-a", QuestType.HUNT, "dock-raiders", 3)
+            val second = objective("hunt-b", QuestType.HUNT, "dock-raiders", 3)
             val world = worldWith(first, second)
 
             val next = QuestObjectiveRouter.apply(
@@ -26,59 +26,118 @@ object QuestObjectiveRouterTest {
             assertEquals(0, next.questBoard.active.getValue("hunt-b").progress)
         }
 
-        test("objective router ignores wrong source target island ready and non hunt") {
-            val active = hunt("hunt-a")
-            val ready = hunt("hunt-ready", status = QuestStatus.READY_TO_TURN_IN, progress = 3)
-            val collect = hunt("collect-a", type = QuestType.COLLECT)
-            val world = worldWith(active, ready, collect)
+        test("location visited advances only the exact bound explore contract") {
+            val exploreA = objective("explore-a", QuestType.EXPLORE, "forgotten-ruins", 3)
+            val exploreB = objective("explore-b", QuestType.EXPLORE, "forgotten-ruins", 3)
+            val world = worldWith(exploreA, exploreB)
 
-            val wrongSource = QuestObjectiveRouter.apply(
+            val next = QuestObjectiveRouter.apply(
                 world,
-                QuestObjectiveEvent(QuestObjectiveEventType.ENEMY_DEFEATED, "dock-raiders", "shells-town", 1, "missing"),
+                QuestObjectiveEvent(
+                    QuestObjectiveEventType.LOCATION_VISITED,
+                    "forgotten-ruins",
+                    "shells-town",
+                    1,
+                    "explore-a",
+                ),
             )
-            assertEquals(world, wrongSource)
 
-            val wrongTarget = QuestObjectiveRouter.apply(
-                world,
-                QuestObjectiveEvent(QuestObjectiveEventType.ENEMY_DEFEATED, "other-raiders", "shells-town", 1, "hunt-a"),
-            )
-            assertEquals(world, wrongTarget)
-
-            val wrongIsland = QuestObjectiveRouter.apply(
-                world,
-                QuestObjectiveEvent(QuestObjectiveEventType.ENEMY_DEFEATED, "dock-raiders", "other-island", 1, "hunt-a"),
-            )
-            assertEquals(world, wrongIsland)
-
-            val readyEvent = QuestObjectiveRouter.apply(
-                world,
-                QuestObjectiveEvent(QuestObjectiveEventType.ENEMY_DEFEATED, "dock-raiders", "shells-town", 1, "hunt-ready"),
-            )
-            assertEquals(world, readyEvent)
-
-            val nonHuntEvent = QuestObjectiveRouter.apply(
-                world,
-                QuestObjectiveEvent(QuestObjectiveEventType.ENEMY_DEFEATED, "dock-raiders", "shells-town", 1, "collect-a"),
-            )
-            assertEquals(world, nonHuntEvent)
+            assertEquals(1, next.questBoard.active.getValue("explore-a").progress)
+            assertEquals(0, next.questBoard.active.getValue("explore-b").progress)
         }
 
-        test("future objective event types are no op in this slice") {
-            val world = worldWith(hunt("hunt-a"))
-            QuestObjectiveEventType.entries
-                .filter { it != QuestObjectiveEventType.ENEMY_DEFEATED }
-                .forEach { type ->
-                    val next = QuestObjectiveRouter.apply(
+        test("item acquired advances only the exact bound collect contract") {
+            val collectA = objective("collect-a", QuestType.COLLECT, "medical-supplies", 4)
+            val collectB = objective("collect-b", QuestType.COLLECT, "medical-supplies", 4)
+            val world = worldWith(collectA, collectB)
+
+            val next = QuestObjectiveRouter.apply(
+                world,
+                QuestObjectiveEvent(
+                    QuestObjectiveEventType.ITEM_ACQUIRED,
+                    "medical-supplies",
+                    "shells-town",
+                    1,
+                    "collect-a",
+                ),
+            )
+
+            assertEquals(1, next.questBoard.active.getValue("collect-a").progress)
+            assertEquals(0, next.questBoard.active.getValue("collect-b").progress)
+        }
+
+        test("objective router ignores wrong source target island ready and mismatched type") {
+            val hunt = objective("hunt-a", QuestType.HUNT, "dock-raiders", 3)
+            val readyHunt = objective("hunt-ready", QuestType.HUNT, "dock-raiders", 3, QuestStatus.READY_TO_TURN_IN, 3)
+            val collect = objective("collect-a", QuestType.COLLECT, "medical-supplies", 4)
+            val explore = objective("explore-a", QuestType.EXPLORE, "forgotten-ruins", 3)
+            val world = worldWith(hunt, readyHunt, collect, explore)
+
+            assertEquals(
+                world,
+                QuestObjectiveRouter.apply(
+                    world,
+                    QuestObjectiveEvent(QuestObjectiveEventType.ENEMY_DEFEATED, "dock-raiders", "shells-town", 1, "missing"),
+                ),
+            )
+            assertEquals(
+                world,
+                QuestObjectiveRouter.apply(
+                    world,
+                    QuestObjectiveEvent(QuestObjectiveEventType.ENEMY_DEFEATED, "other-raiders", "shells-town", 1, "hunt-a"),
+                ),
+            )
+            assertEquals(
+                world,
+                QuestObjectiveRouter.apply(
+                    world,
+                    QuestObjectiveEvent(QuestObjectiveEventType.ENEMY_DEFEATED, "dock-raiders", "other-island", 1, "hunt-a"),
+                ),
+            )
+            assertEquals(
+                world,
+                QuestObjectiveRouter.apply(
+                    world,
+                    QuestObjectiveEvent(QuestObjectiveEventType.ENEMY_DEFEATED, "dock-raiders", "shells-town", 1, "hunt-ready"),
+                ),
+            )
+            assertEquals(
+                world,
+                QuestObjectiveRouter.apply(
+                    world,
+                    QuestObjectiveEvent(QuestObjectiveEventType.ENEMY_DEFEATED, "medical-supplies", "shells-town", 1, "collect-a"),
+                ),
+            )
+            assertEquals(
+                world,
+                QuestObjectiveRouter.apply(
+                    world,
+                    QuestObjectiveEvent(QuestObjectiveEventType.ITEM_ACQUIRED, "forgotten-ruins", "shells-town", 1, "explore-a"),
+                ),
+            )
+        }
+
+        test("reserved and future objective event types remain no op") {
+            val world = worldWith(objective("explore-a", QuestType.EXPLORE, "forgotten-ruins", 3))
+            listOf(
+                QuestObjectiveEventType.ISLAND_VISITED,
+                QuestObjectiveEventType.NPC_RESCUED,
+                QuestObjectiveEventType.ESCORT_ARRIVED,
+                QuestObjectiveEventType.CLUE_DISCOVERED,
+            ).forEach { type ->
+                assertEquals(
+                    world,
+                    QuestObjectiveRouter.apply(
                         world,
-                        QuestObjectiveEvent(type, "dock-raiders", "shells-town", 1, "hunt-a"),
-                    )
-                    assertEquals(world, next)
-                }
+                        QuestObjectiveEvent(type, "forgotten-ruins", "shells-town", 1, "explore-a"),
+                    ),
+                )
+            }
         }
 
         test("unbound exact matches advance deterministically regardless of map insertion order") {
-            val a = hunt("a-hunt")
-            val b = hunt("b-hunt")
+            val a = objective("a-hunt", QuestType.HUNT, "dock-raiders", 3)
+            val b = objective("b-hunt", QuestType.HUNT, "dock-raiders", 3)
             val forward = worldWith(a, b)
             val reverse = worldWith(b, a)
             val event = QuestObjectiveEvent(
@@ -97,41 +156,43 @@ object QuestObjectiveRouterTest {
             assertEquals(1, forwardNext.questBoard.active.getValue("b-hunt").progress)
         }
 
-        test("objective progress clamps at hunt requirement") {
-            val nearReady = hunt("hunt-a", progress = 2)
+        test("objective progress clamps at requirement") {
+            val nearReady = objective("explore-a", QuestType.EXPLORE, "forgotten-ruins", 3, progress = 2)
             val world = worldWith(nearReady)
 
             val next = QuestObjectiveRouter.apply(
                 world,
                 QuestObjectiveEvent(
-                    QuestObjectiveEventType.ENEMY_DEFEATED,
-                    "dock-raiders",
+                    QuestObjectiveEventType.LOCATION_VISITED,
+                    "forgotten-ruins",
                     "shells-town",
                     99,
-                    "hunt-a",
+                    "explore-a",
                 ),
             )
 
-            assertEquals(3, next.questBoard.active.getValue("hunt-a").progress)
-            assertEquals(QuestStatus.READY_TO_TURN_IN, next.questBoard.active.getValue("hunt-a").status)
+            assertEquals(3, next.questBoard.active.getValue("explore-a").progress)
+            assertEquals(QuestStatus.READY_TO_TURN_IN, next.questBoard.active.getValue("explore-a").status)
         }
     }
 
-    private fun hunt(
+    private fun objective(
         id: String,
+        type: QuestType,
+        targetId: String,
+        required: Int,
         status: QuestStatus = QuestStatus.ACTIVE,
         progress: Int = 0,
-        type: QuestType = QuestType.HUNT,
     ): QuestProgress {
         val definition = QuestDefinition(
             questId = id,
             islandId = "shells-town",
-            title = "Caçada $id",
+            title = "Contrato $id",
             type = type,
             rarity = QuestRarity.COMMON,
             issuerFaction = "CIVILIANS",
-            targetId = "dock-raiders",
-            requiredAmount = 3,
+            targetId = targetId,
+            requiredAmount = required,
         )
         return QuestProgress(
             definition = definition,
