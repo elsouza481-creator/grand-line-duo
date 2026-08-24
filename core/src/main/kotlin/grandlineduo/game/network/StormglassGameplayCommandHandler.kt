@@ -15,6 +15,8 @@ import grandlineduo.game.arc.ArcCoordinator
 import grandlineduo.game.arc.ArcCombatCoordinator
 import grandlineduo.game.arc.ArcBossFactory
 import grandlineduo.game.combat.*
+import grandlineduo.game.duel.DuelCoordinator
+import grandlineduo.game.duel.DuelPhase
 import grandlineduo.game.character.CharacterCreation
 import grandlineduo.game.character.CharacterCreationResult
 import grandlineduo.game.character.CharacterStateSync
@@ -22,10 +24,17 @@ import grandlineduo.game.character.ProgressionEngine
 import grandlineduo.game.character.ProgressionResult
 import grandlineduo.game.character.Attribute
 import grandlineduo.game.character.Skill
+import grandlineduo.game.director.DirectorDifficulty
 import grandlineduo.game.scenario.ScenarioStage
 import grandlineduo.game.crew.CrewEngine
 import grandlineduo.game.crew.CrewRecruitmentCatalog
 import grandlineduo.game.crew.CrewRole
+import grandlineduo.game.quest.QuestDirectorBridge
+import grandlineduo.game.quest.QuestEngine
+import grandlineduo.game.quest.QuestBossCoordinator
+import grandlineduo.game.quest.QuestHuntCoordinator
+import grandlineduo.game.quest.QuestFieldCoordinator
+import grandlineduo.game.quest.QuestFieldActionType
 import grandlineduo.game.scenario.StormglassCayScenario
 import grandlineduo.game.powers.PowerTechniqueEngine
 import grandlineduo.game.powers.PowerDiscoveryEngine
@@ -52,18 +61,93 @@ class StormglassGameplayCommandHandler(
     private val scenarioEngine = StormglassCayScenario()
     private val arcCoordinator = ArcCoordinator(hostReplica, snapshotStore, durableStore)
     private val arcCombatCoordinator = ArcCombatCoordinator(hostReplica, snapshotStore, durableStore)
+    private val questBossCoordinator = QuestBossCoordinator(
+        hostReplica = hostReplica,
+        campaignSeed = seed,
+        snapshotStore = snapshotStore,
+        durableStore = durableStore,
+    )
+    private val questHuntCoordinator = QuestHuntCoordinator(
+        hostReplica = hostReplica,
+        campaignSeed = seed,
+        snapshotStore = snapshotStore,
+        durableStore = durableStore,
+    )
+    private val questFieldCoordinator = QuestFieldCoordinator(
+        hostReplica = hostReplica,
+        campaignSeed = seed,
+        snapshotStore = snapshotStore,
+        durableStore = durableStore,
+    )
+    private val duelCoordinator = DuelCoordinator(
+        hostReplica = hostReplica,
+        campaignSeed = seed,
+        snapshotStore = snapshotStore,
+        durableStore = durableStore,
+    )
 
     @Synchronized
     override fun handle(command: GameplayWireCommand, hostTimestamp: Long): CampaignEvent {
         val fingerprint = command.fingerprint()
-        hostReplica.events.firstOrNull { it.commandId == command.commandId }?.let { existing ->
-            require(existing.commandFingerprint == fingerprint) { "Command ID collision" }
-            persist(existing)
-            return existing
+        val beforeExistingCheck = hostReplica.state
+        val existingEvent = hostReplica.events.firstOrNull { it.commandId == command.commandId }
+        val existingFingerprint = existingEvent?.commandFingerprint.orEmpty()
+        val coordinatorOwnsFingerprint =
+            command is GameplayWireCommand.DuelAction ||
+                (command is GameplayWireCommand.QuestAction &&
+                    (command.actionType.equals("START_BOSS", ignoreCase = true) ||
+                        command.actionType.equals("START_HUNT", ignoreCase = true) ||
+                        command.actionType.equals("EXPLORE_SITE", ignoreCase = true) ||
+                        command.actionType.equals("SEARCH_SUPPLIES", ignoreCase = true))) ||
+                (command is GameplayWireCommand.CombatAction && (
+                    beforeExistingCheck.activeDuel != null ||
+                        beforeExistingCheck.worldFlags[QuestHuntCoordinator.ACTIVE_QUEST_FLAG] != null ||
+                        beforeExistingCheck.worldFlags[QuestBossCoordinator.ACTIVE_QUEST_FLAG] != null ||
+                        existingFingerprint.startsWith("quest-hunt-combat|") ||
+                        existingFingerprint.startsWith("quest-boss-combat|")
+                    ))
+        if (!coordinatorOwnsFingerprint) {
+            existingEvent?.let { existing ->
+                require(existing.commandFingerprint == fingerprint) { "Command ID collision" }
+                persist(existing)
+                return existing
+            }
         }
 
         require(command.actorId == "p1" || command.actorId == "p2") { "Unknown player ${command.actorId}" }
         val before = hostReplica.state
+
+        if (command is GameplayWireCommand.CombatAction && existingEvent != null) {
+            val type = parseBasicCombatAction(command.actionType)
+            when {
+                existingFingerprint.startsWith("quest-hunt-combat|") ->
+                    return questHuntCoordinator.submitAction(command.commandId, command.actorId, type, hostTimestamp)
+                existingFingerprint.startsWith("quest-boss-combat|") ->
+                    return questBossCoordinator.submitAction(command.commandId, command.actorId, type, hostTimestamp)
+            }
+        }
+
+        if (before.activeDuel != null && command !is GameplayWireCommand.DuelAction) {
+            require(before.activeCombat == null) { "Invalid simultaneous duel and PvE combat" }
+            require(command is GameplayWireCommand.CombatAction || command is GameplayWireCommand.PowerAction) {
+                "Only duel actions are available while a duel exists"
+            }
+            require(before.activeDuel.phase == DuelPhase.ACTIVE) { "Duel is not active" }
+        }
+
+        if (command is GameplayWireCommand.DuelAction) {
+            return when (command.actionType.uppercase()) {
+                "CHALLENGE" -> duelCoordinator.challenge(command.commandId, command.actorId, hostTimestamp)
+                "ACCEPT" -> duelCoordinator.accept(command.commandId, command.actorId, hostTimestamp)
+                "DECLINE" -> duelCoordinator.decline(command.commandId, command.actorId, hostTimestamp)
+                "CLOSE" -> duelCoordinator.close(command.commandId, command.actorId, hostTimestamp)
+                else -> throw IllegalArgumentException("Unknown duel action ${command.actionType}")
+            }
+        }
+        if (command is GameplayWireCommand.CombatAction && before.activeDuel != null) {
+            val type = parseBasicCombatAction(command.actionType)
+            return duelCoordinator.submitAction(command.commandId, command.actorId, type, hostTimestamp)
+        }
         if (command is GameplayWireCommand.CharacterCreate) {
             return applyCharacterCreate(before, command, fingerprint, hostTimestamp)
         }
@@ -82,19 +166,70 @@ class StormglassGameplayCommandHandler(
         if (command is GameplayWireCommand.PowerAction) {
             return applyPowerAction(before, command, fingerprint, hostTimestamp)
         }
-        if (command is GameplayWireCommand.CombatAction && before.activeCombat != null) {
-            val type = try {
-                CombatActionType.valueOf(command.actionType)
-            } catch (_: IllegalArgumentException) {
-                throw IllegalArgumentException("Unknown combat action ${command.actionType}")
+        if (command is GameplayWireCommand.QuestAction) {
+            if (command.actionType.equals("START_BOSS", ignoreCase = true)) {
+                return questBossCoordinator.start(
+                    command.commandId,
+                    command.actorId,
+                    command.questId,
+                    hostTimestamp,
+                )
             }
-            require(type in BASIC_COMBAT_ACTIONS) { "Power techniques require a power action" }
-            return arcCombatCoordinator.submitAction(
-                command.commandId,
-                command.actorId,
-                type,
-                hostTimestamp,
-            )
+            if (command.actionType.equals("START_HUNT", ignoreCase = true)) {
+                return questHuntCoordinator.start(
+                    command.commandId,
+                    command.actorId,
+                    command.questId,
+                    hostTimestamp,
+                )
+            }
+            if (command.actionType.equals("EXPLORE_SITE", ignoreCase = true)) {
+                require(command.amount == 1) { "Field quest action amount must be one" }
+                return questFieldCoordinator.attempt(
+                    command.commandId,
+                    command.actorId,
+                    command.questId,
+                    QuestFieldActionType.EXPLORE_SITE,
+                    hostTimestamp,
+                )
+            }
+            if (command.actionType.equals("SEARCH_SUPPLIES", ignoreCase = true)) {
+                require(command.amount == 1) { "Field quest action amount must be one" }
+                return questFieldCoordinator.attempt(
+                    command.commandId,
+                    command.actorId,
+                    command.questId,
+                    QuestFieldActionType.SEARCH_SUPPLIES,
+                    hostTimestamp,
+                )
+            }
+            return applyQuestAction(before, command, fingerprint, hostTimestamp)
+        }
+        if (command is GameplayWireCommand.CombatAction && before.activeCombat != null) {
+            val type = parseBasicCombatAction(command.actionType)
+            val huntBound = before.worldFlags[QuestHuntCoordinator.ACTIVE_QUEST_FLAG] != null
+            val bossBound = before.worldFlags[QuestBossCoordinator.ACTIVE_QUEST_FLAG] != null
+            require(!(huntBound && bossBound)) { "Invalid simultaneous HUNT and BOSS combat bindings" }
+            return when {
+                huntBound -> questHuntCoordinator.submitAction(
+                    command.commandId,
+                    command.actorId,
+                    type,
+                    hostTimestamp,
+                )
+                bossBound -> questBossCoordinator.submitAction(
+                    command.commandId,
+                    command.actorId,
+                    type,
+                    hostTimestamp,
+                )
+                else -> arcCombatCoordinator.submitAction(
+                    command.commandId,
+                    command.actorId,
+                    type,
+                    hostTimestamp,
+                )
+            }
         }
         val restored = StormglassPersistenceAdapter.decode(before)
 
@@ -107,6 +242,8 @@ class StormglassGameplayCommandHandler(
             is GameplayWireCommand.InventoryAction -> error("handled above")
             is GameplayWireCommand.WorldAction -> error("handled above")
             is GameplayWireCommand.PowerAction -> error("handled above")
+            is GameplayWireCommand.QuestAction -> error("handled above")
+            is GameplayWireCommand.DuelAction -> error("handled above")
         }
         val nextWorld = StormglassPersistenceAdapter.encode(before, transition.scenario, transition.combat)
         val result = hostReplica.submit(
@@ -192,6 +329,53 @@ class StormglassGameplayCommandHandler(
                 metadata = mapOf(
                     "meta.inventoryAction" to command.actionType.uppercase(),
                     "meta.inventoryTarget" to command.target,
+                ),
+            ),
+            hostTimestamp,
+        )
+        persist(result.event)
+        return result.event
+    }
+
+    private fun applyQuestAction(
+        before: grandlineduo.core.model.WorldState,
+        command: GameplayWireCommand.QuestAction,
+        fingerprint: String,
+        hostTimestamp: Long,
+    ): CampaignEvent {
+        require(before.activeCombat == null && StormglassPersistenceAdapter.decode(before).combat == null) {
+            "Quest management is unavailable during combat"
+        }
+        require(before.activeVoyage == null) { "Quest management is unavailable during a voyage incident" }
+        val action = command.actionType.uppercase()
+        val nextWorld = when (action) {
+            "REFRESH" -> {
+                require(command.questId.isBlank()) { "Quest refresh cannot target a quest" }
+                QuestDirectorBridge.refresh(
+                    world = before,
+                    seed = seed,
+                    difficulty = DirectorDifficulty.NORMAL,
+                    presentFactions = (
+                        before.socialState.factionStanding.keys +
+                            setOf("CIVILIANS", "MARINES", "UNDERWORLD")
+                    ).toSet(),
+                )
+            }
+            "ACCEPT" -> QuestEngine.accept(before, command.questId, command.actorId)
+            "PROGRESS" -> QuestEngine.progress(before, command.questId, command.amount)
+            "TURN_IN" -> QuestEngine.turnIn(before, command.questId)
+            "FAIL" -> QuestEngine.fail(before, command.questId, "abandoned by ${command.actorId}")
+            else -> throw IllegalArgumentException("Unknown quest action ${command.actionType}")
+        }
+        val result = hostReplica.submit(
+            ReplaceWorldStateCommand(
+                commandId = command.commandId,
+                actorId = command.actorId,
+                nextState = nextWorld,
+                sourceFingerprint = fingerprint,
+                metadata = mapOf(
+                    "meta.questAction" to action,
+                    "meta.questId" to command.questId,
                 ),
             ),
             hostTimestamp,
@@ -357,6 +541,43 @@ class StormglassGameplayCommandHandler(
             "meta.powerEnergyCost" to prepared.technique.energyCost.toString(),
             "meta.powerBonus" to prepared.bonusDamage.toString(),
         )
+        if (poweredWorld.activeDuel != null) {
+            require(poweredWorld.activeCombat == null) { "Invalid simultaneous duel and PvE combat" }
+            return duelCoordinator.submitPreparedAction(
+                commandId = command.commandId,
+                playerId = command.actorId,
+                actionType = prepared.combatAction,
+                preparedWorld = poweredWorld,
+                sourceFingerprint = fingerprint,
+                metadata = metadata,
+                hostTimestamp = hostTimestamp,
+            )
+        }
+        val huntBound = poweredWorld.worldFlags[QuestHuntCoordinator.ACTIVE_QUEST_FLAG] != null
+        val bossBound = poweredWorld.worldFlags[QuestBossCoordinator.ACTIVE_QUEST_FLAG] != null
+        require(!(huntBound && bossBound)) { "Invalid simultaneous HUNT and BOSS combat bindings" }
+        if (poweredWorld.activeCombat != null && huntBound) {
+            return questHuntCoordinator.submitPreparedAction(
+                commandId = command.commandId,
+                playerId = command.actorId,
+                actionType = prepared.combatAction,
+                preparedWorld = poweredWorld,
+                sourceFingerprint = fingerprint,
+                metadata = metadata,
+                hostTimestamp = hostTimestamp,
+            )
+        }
+        if (poweredWorld.activeCombat != null && bossBound) {
+            return questBossCoordinator.submitPreparedAction(
+                commandId = command.commandId,
+                playerId = command.actorId,
+                actionType = prepared.combatAction,
+                preparedWorld = poweredWorld,
+                sourceFingerprint = fingerprint,
+                metadata = metadata,
+                hostTimestamp = hostTimestamp,
+            )
+        }
 
         val nextWorld = if (poweredWorld.activeCombat != null) {
             val arc = poweredWorld.activeArc ?: throw IllegalArgumentException("Active boss combat has no arc")
@@ -524,12 +745,7 @@ class StormglassGameplayCommandHandler(
         command: GameplayWireCommand.CombatAction,
     ): Transition {
         val current = combat ?: throw IllegalArgumentException("Combat is not active")
-        val type = try {
-            CombatActionType.valueOf(command.actionType)
-        } catch (_: IllegalArgumentException) {
-            throw IllegalArgumentException("Unknown combat action ${command.actionType}")
-        }
-        require(type in BASIC_COMBAT_ACTIONS) { "Power techniques require a power action" }
+        val type = parseBasicCombatAction(command.actionType)
         val combatEngine = CombatEngine(seed, CombatModifierResolver.forWorld(hostReplica.state))
         val locked = combatEngine.lockAction(current, CombatAction(command.actorId, type))
         val resolved = combatEngine.resolveIfReady(locked)
@@ -554,6 +770,16 @@ class StormglassGameplayCommandHandler(
                 "meta.combatStatus" to resolved.state.status.name,
             ),
         )
+    }
+
+    private fun parseBasicCombatAction(actionType: String): CombatActionType {
+        val type = try {
+            CombatActionType.valueOf(actionType)
+        } catch (_: IllegalArgumentException) {
+            throw IllegalArgumentException("Unknown combat action $actionType")
+        }
+        require(type in BASIC_COMBAT_ACTIONS) { "Power techniques require a power action" }
+        return type
     }
 
     private fun initialVeyronCombat(sharedFlags: Set<String>): CombatState {

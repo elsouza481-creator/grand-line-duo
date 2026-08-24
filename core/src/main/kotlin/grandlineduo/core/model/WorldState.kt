@@ -4,6 +4,8 @@ import grandlineduo.game.character.CharacterProfile
 import grandlineduo.game.arc.ArcState
 import grandlineduo.game.crew.CrewState
 import grandlineduo.game.combat.CombatState
+import grandlineduo.game.duel.DuelState
+import grandlineduo.game.quest.QuestBoardState
 import grandlineduo.game.social.SocialState
 import grandlineduo.game.ship.ShipState
 import grandlineduo.game.ship.VoyageEncounter
@@ -31,6 +33,8 @@ data class WorldState(
     val crewState: CrewState = CrewState(),
     val activeArc: ArcState? = null,
     val activeCombat: CombatState? = null,
+    val activeDuel: DuelState? = null,
+    val questBoard: QuestBoardState = QuestBoardState(),
     val players: Map<String, PlayerState> = emptyMap(),
     val worldFlags: Map<String, String> = emptyMap(),
 )

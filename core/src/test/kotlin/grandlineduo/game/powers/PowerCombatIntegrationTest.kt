@@ -19,6 +19,14 @@ import grandlineduo.game.combat.EnemyAttackType
 import grandlineduo.game.combat.EnemyCombatant
 import grandlineduo.game.combat.EnemyTelegraph
 import grandlineduo.game.network.StormglassGameplayCommandHandler
+import grandlineduo.game.quest.QuestBoardState
+import grandlineduo.game.quest.QuestBossCoordinator
+import grandlineduo.game.quest.QuestBossFactory
+import grandlineduo.game.quest.QuestDefinition
+import grandlineduo.game.quest.QuestProgress
+import grandlineduo.game.quest.QuestRarity
+import grandlineduo.game.quest.QuestStatus
+import grandlineduo.game.quest.QuestType
 import grandlineduo.test.assertEquals
 import grandlineduo.test.assertTrue
 import grandlineduo.test.test
@@ -48,6 +56,53 @@ object PowerCombatIntegrationTest {
             assertTrue(host.state.activeCombat == null || host.state.activeCombat!!.status == CombatStatus.ACTIVE)
         }
 
+        test("power combat action routes through quest boss origin and preserves energy accounting") {
+            val profile0 = (CharacterCreation.create(CharacterCreationTest.validDraft()) as CharacterCreationResult.Success).profile
+            val profile = profile0.copy(haki = HakiState(disciplines = mapOf(HakiType.BUSOSHOKU to HakiDiscipline(2))))
+            val p1 = PlayerState("p1", profile.name, profile.maxHp, profile.maxHp, 0, profile.maxEnergy, profile.maxEnergy, profile)
+            val p2 = PlayerState("p2", "Mako", 0, 30, 0)
+            val quest = QuestDefinition(
+                questId = "emberwake-boss-power",
+                islandId = "emberwake",
+                title = "Derrubar o executor da ilha",
+                type = QuestType.BOSS,
+                rarity = QuestRarity.COMMON,
+                issuerFaction = "CIVILIANS",
+                targetId = "island-enforcer",
+                requiredAmount = 1,
+            )
+            val base = WorldState(
+                campaignId = "quest-power-combat",
+                islandId = "emberwake",
+                players = mapOf("p1" to p1, "p2" to p2),
+                questBoard = QuestBoardState(
+                    active = mapOf(
+                        quest.questId to QuestProgress(
+                            definition = quest,
+                            status = QuestStatus.ACTIVE,
+                            acceptedBy = "p1",
+                        )
+                    )
+                ),
+            )
+            val world = base.copy(
+                activeCombat = QuestBossFactory.create(base, quest, 5L),
+                worldFlags = mapOf(QuestBossCoordinator.ACTIVE_QUEST_FLAG to quest.questId),
+            )
+            val host = HostReplica(world)
+            val handler = StormglassGameplayCommandHandler(host, seed = 5L)
+
+            val event = handler.handle(
+                GameplayWireCommand.PowerAction("quest-power-1", "p1", "HAKI_BUSOSHOKU"),
+                150,
+            )
+
+            assertEquals(profile.maxEnergy - 4, host.state.players.getValue("p1").energy)
+            assertEquals(1, host.state.players.getValue("p1").profile!!.haki.disciplines.getValue(HakiType.BUSOSHOKU).useCount)
+            assertTrue((host.state.activeCombat?.enemy?.hp ?: 0) < 72)
+            assertEquals(quest.questId, host.state.worldFlags[QuestBossCoordinator.ACTIVE_QUEST_FLAG])
+            assertEquals("HAKI_BUSOSHOKU", event.payload["meta.powerTechnique"])
+        }
 
         test("single player session dispatches power action through authoritative coordinator") {
             val root = java.nio.file.Files.createTempDirectory("gld-power-session")

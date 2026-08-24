@@ -166,6 +166,20 @@ object WireCodec {
                                 data.writeUTF(command.actorId)
                                 data.writeUTF(command.techniqueId)
                             }
+                            is GameplayWireCommand.QuestAction -> {
+                                data.writeByte(9)
+                                data.writeUTF(command.commandId)
+                                data.writeUTF(command.actorId)
+                                data.writeUTF(command.actionType)
+                                data.writeUTF(command.questId)
+                                data.writeInt(command.amount)
+                            }
+                            is GameplayWireCommand.DuelAction -> {
+                                data.writeByte(10)
+                                data.writeUTF(command.commandId)
+                                data.writeUTF(command.actorId)
+                                data.writeUTF(command.actionType)
+                            }
                         }
                     }
                     is WireMessage.Refresh -> {
@@ -255,6 +269,18 @@ object WireCodec {
                             actorId = data.readUTF(),
                             techniqueId = data.readUTF(),
                         )
+                        9 -> GameplayWireCommand.QuestAction(
+                            commandId = data.readUTF(),
+                            actorId = data.readUTF(),
+                            actionType = data.readUTF(),
+                            questId = data.readUTF(),
+                            amount = data.readInt(),
+                        )
+                        10 -> GameplayWireCommand.DuelAction(
+                            commandId = data.readUTF(),
+                            actorId = data.readUTF(),
+                            actionType = data.readUTF(),
+                        )
                         else -> throw WireProtocolException("Unknown gameplay command type $subtype")
                     }
                     WireMessage.GameplayCommand(command)
@@ -278,7 +304,6 @@ object WireCodec {
     } catch (e: Exception) {
         throw WireProtocolException("Invalid wire payload: ${e.message}")
     }
-
 
     private fun DataOutputStream.writeCharacterDraft(draft: CharacterDraft) {
         writeUTF(draft.name)

@@ -2,7 +2,7 @@ package grandlineduo.core.network
 
 import java.security.MessageDigest
 
-const val PROTOCOL_VERSION: Int = 4
+const val PROTOCOL_VERSION: Int = 5
 
 data class ProtocolEnvelope(
     val protocolVersion: Int,

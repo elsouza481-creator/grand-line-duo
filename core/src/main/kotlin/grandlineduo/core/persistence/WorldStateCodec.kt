@@ -20,11 +20,14 @@ import grandlineduo.game.combat.CombatStatus
 import grandlineduo.game.combat.CombatState
 import grandlineduo.game.combat.CombatActionType
 import grandlineduo.game.combat.CombatAction
+import grandlineduo.game.duel.DuelStateBinaryCodec
 import grandlineduo.game.powers.DevilFruitCategory
 import grandlineduo.game.powers.DevilFruitState
 import grandlineduo.game.powers.HakiDiscipline
 import grandlineduo.game.powers.HakiState
 import grandlineduo.game.powers.HakiType
+import grandlineduo.game.quest.QuestBoardState
+import grandlineduo.game.quest.QuestStateBinaryCodec
 import grandlineduo.game.social.NpcBond
 import grandlineduo.game.social.NpcRelationship
 import grandlineduo.game.social.NpcStatus
@@ -42,7 +45,7 @@ import java.io.DataInputStream
 import java.io.DataOutputStream
 
 object WorldStateCodec {
-    private const val CURRENT_VERSION = 9
+    private const val CURRENT_VERSION = 11
 
     fun encode(state: WorldState): ByteArray {
         val out = ByteArrayOutputStream()
@@ -63,6 +66,9 @@ object WorldStateCodec {
             state.activeArc?.let { writeArcState(data, it) }
             data.writeBoolean(state.activeCombat != null)
             state.activeCombat?.let { writeCombatState(data, it) }
+            QuestStateBinaryCodec.write(data, state.questBoard)
+            data.writeBoolean(state.activeDuel != null)
+            state.activeDuel?.let { DuelStateBinaryCodec.write(data, it) }
 
             val players = state.players.toSortedMap()
             data.writeInt(players.size)
@@ -106,6 +112,8 @@ object WorldStateCodec {
             val crewState = if (version >= 7) readCrewState(data) else CrewState()
             val activeArc = if (version >= 8 && data.readBoolean()) readArcState(data) else null
             val activeCombat = if (version >= 9 && data.readBoolean()) readCombatState(data) else null
+            val questBoard = if (version >= 10) QuestStateBinaryCodec.read(data) else QuestBoardState()
+            val activeDuel = if (version >= 11 && data.readBoolean()) DuelStateBinaryCodec.read(data) else null
 
             val playerCount = data.readInt()
             require(playerCount in 0..2) { "Invalid player count" }
@@ -150,6 +158,8 @@ object WorldStateCodec {
                 crewState = crewState,
                 activeArc = activeArc,
                 activeCombat = activeCombat,
+                activeDuel = activeDuel,
+                questBoard = questBoard,
                 players = players,
                 worldFlags = flags,
             )

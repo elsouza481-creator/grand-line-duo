@@ -1,6 +1,8 @@
 package grandlineduo.core.hash
 
 import grandlineduo.core.model.WorldState
+import grandlineduo.game.duel.DuelCanonicalState
+import grandlineduo.game.quest.QuestCanonicalState
 import java.security.MessageDigest
 
 object CanonicalStateHasher {
@@ -125,6 +127,9 @@ object CanonicalStateHasher {
                 field("combatActionType", action.type.name)
             }
         }
+
+        append(QuestCanonicalState.encode(state.questBoard))
+        state.activeDuel?.let { append(DuelCanonicalState.encode(it)) }
 
         append("players=").append(state.players.size).append(';')
         state.players.toSortedMap().forEach { (key, player) ->

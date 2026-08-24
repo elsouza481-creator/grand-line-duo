@@ -57,6 +57,28 @@ object WireCodecTest {
             }
         }
 
+        test("duel lifecycle actions round trip through gameplay wire subtype ten") {
+            listOf("CHALLENGE", "ACCEPT", "DECLINE", "CLOSE").forEachIndexed { index, action ->
+                val message = WireMessage.GameplayCommand(
+                    GameplayWireCommand.DuelAction("duel-$index", if (index == 0) "p1" else "p2", action)
+                )
+                assertEquals(message, WireCodec.decodeFrame(WireCodec.encodeFrame(message)))
+            }
+        }
+
+        test("quest action keeps its existing gameplay wire encoding after duel subtype is added") {
+            val message = WireMessage.GameplayCommand(
+                GameplayWireCommand.QuestAction(
+                    commandId = "quest-compat",
+                    actorId = "p2",
+                    actionType = "START_BOSS",
+                    questId = "boss-7",
+                    amount = 1,
+                )
+            )
+            assertEquals(message, WireCodec.decodeFrame(WireCodec.encodeFrame(message)))
+        }
+
         test("wire codec rejects checksum corruption") {
             val bytes = WireCodec.encodeFrame(
                 WireMessage.Command(GrantBerriesCommand("cmd-2", "p2", 99))
