@@ -35,7 +35,7 @@ Pure deterministic rules for:
 - validating the field action against quest type;
 - difficulty class by rarity;
 - ability/skill modifier selection;
-- deterministic D20 generation;
+- deterministic D20 seed/roll generation;
 - progress-per-success by rarity;
 - producing a `QuestFieldAttemptResult` without mutating world state.
 
@@ -146,6 +146,7 @@ Exact authorization:
 - `SEARCH_SUPPLIES` requires an ACTIVE COLLECT quest.
 - mismatched action/quest type rejects without mutation.
 - `QuestAction.amount` must equal `1`; clients cannot forge objective quantity through the existing amount field.
+- either P1 or P2 may attempt an active field contract regardless of `acceptedBy`; the actor still must satisfy all health/profile/energy rules.
 
 ## 7. D20 Resolution
 
@@ -215,7 +216,9 @@ attempt ordinal
 
 No wall clock, client local state, map iteration order or command id participates in the roll.
 
-A suitable implementation is a stable XOR/multiplication composition followed by `java.util.Random(seed).nextInt(20) + 1`. Exact constants are implementation details but must be frozen by deterministic tests.
+`QuestFieldResolver` exposes a pure `rollSeed(...)` helper so tests can prove that quest identity, target, rarity, action, actor and attempt ordinal participate in deterministic entropy without incorrectly assuming that two different seeds must produce two different d20 values.
+
+The resolved roll is `java.util.Random(rollSeed(...)).nextInt(20) + 1`. Seed-composition constants are implementation details but, once implemented, are frozen by exact deterministic tests.
 
 Command retry does not advance the ordinal and returns the original event/result.
 
@@ -314,7 +317,9 @@ These flags intentionally participate in the existing canonical hash because the
 
 The attempt count is quest-global, not per actor. Switching actors does not reset the roll stream.
 
-On `TURN_IN` or `FAIL`, all `quest.field.*.<questId>` keys are removed so long-running campaigns do not accumulate resolved-contract field state. Cleanup is deterministic and does not affect HUNT/BOSS or migration quest types.
+A small quest-domain helper may own exact key construction/read/write/cleanup. Cleanup must enumerate the exact known keys for the supplied quest id; it must not use suffix matching that could accidentally delete another quest's flags.
+
+`QuestEngine.turnIn(...)` and `QuestEngine.fail(...)` remove all exact field keys for the resolved quest after applying their normal board/reward/failure transition. This keeps long-running campaigns from accumulating resolved-contract field state. Cleanup is a no-op for contracts with no field state and does not alter HUNT/BOSS behavior.
 
 ## 12. `QuestFieldResolver` API
 
@@ -347,6 +352,14 @@ object QuestFieldResolver {
         attemptOrdinal: Int,
         campaignSeed: Long,
     ): QuestFieldAttemptResult
+
+    fun rollSeed(
+        progress: QuestProgress,
+        actorId: String,
+        actionType: QuestFieldActionType,
+        attemptOrdinal: Int,
+        campaignSeed: Long,
+    ): Long
 
     fun difficultyClass(rarity: QuestRarity): Int
     fun progressPerSuccess(rarity: QuestRarity): Int
@@ -458,6 +471,8 @@ EXPLORE_SITE     -> QuestFieldCoordinator(EXPLORE_SITE)
 SEARCH_SUPPLIES  -> QuestFieldCoordinator(SEARCH_SUPPLIES)
 all others       -> existing quest management path
 ```
+
+The handler requires `QuestAction.amount == 1` before dispatching either field action.
 
 Manual `PROGRESS` continues through `QuestEngine.progress`, which rejects EXPLORE/COLLECT/HUNT/BOSS.
 
@@ -621,9 +636,9 @@ The test must tolerate deterministic success/failure by issuing attempts until t
 - exact rarity progress multiplier;
 - EXPLORE modifier and deterministic tie priority;
 - COLLECT best-check selection and deterministic tie priority;
-- identical authoritative inputs yield identical roll/result;
-- attempt ordinal changes the deterministic roll stream;
-- actor/action/quest identity participate in seed;
+- identical authoritative inputs yield identical seed, roll and result;
+- quest/target/rarity/action/actor/attempt identity each participates in `rollSeed`;
+- changing attempt ordinal changes `rollSeed` (the resulting d20 may coincidentally be equal and must not be used as the seed-participation assertion);
 - roll is always 1..20;
 - `success == total >= CD`;
 - invalid type/action reject.
@@ -632,6 +647,7 @@ The test must tolerate deterministic success/failure by issuing attempts until t
 
 - valid EXPLORE consumes exactly 1 PE and increments attempt ordinal;
 - valid COLLECT consumes exactly 1 PE and increments attempt ordinal;
+- either P1 or P2 may attempt regardless of `acceptedBy`;
 - failure consumes PE but gives zero progress;
 - success emits correct bound event and exact progress amount;
 - final success transitions READY_TO_TURN_IN;
@@ -643,7 +659,7 @@ The test must tolerate deterministic success/failure by issuing attempts until t
 - profile/HP/island/status/action/amount validation;
 - combat/voyage/duel/non-hub rejection;
 - metadata exactness;
-- field state cleanup on TURN_IN/FAIL.
+- exact-key field state cleanup on TURN_IN/FAIL without touching another quest.
 
 ### Handler / Presentation
 
