@@ -5,6 +5,7 @@ import grandlineduo.core.model.WorldState
 enum class QuestObjectiveEventType {
     ENEMY_DEFEATED,
     ISLAND_VISITED,
+    LOCATION_VISITED,
     ITEM_ACQUIRED,
     NPC_RESCUED,
     ESCORT_ARRIVED,
@@ -28,12 +29,20 @@ data class QuestObjectiveEvent(
 
 object QuestObjectiveRouter {
     fun apply(world: WorldState, event: QuestObjectiveEvent): WorldState {
-        if (event.type != QuestObjectiveEventType.ENEMY_DEFEATED) return world
+        val questType = when (event.type) {
+            QuestObjectiveEventType.ENEMY_DEFEATED -> QuestType.HUNT
+            QuestObjectiveEventType.LOCATION_VISITED -> QuestType.EXPLORE
+            QuestObjectiveEventType.ITEM_ACQUIRED -> QuestType.COLLECT
+            QuestObjectiveEventType.ISLAND_VISITED,
+            QuestObjectiveEventType.NPC_RESCUED,
+            QuestObjectiveEventType.ESCORT_ARRIVED,
+            QuestObjectiveEventType.CLUE_DISCOVERED -> return world
+        }
 
         var next = world
         world.questBoard.active.toSortedMap().forEach { (questId, progress) ->
             val matches = progress.status == QuestStatus.ACTIVE &&
-                progress.definition.type == QuestType.HUNT &&
+                progress.definition.type == questType &&
                 progress.definition.islandId == event.islandId &&
                 progress.definition.targetId == event.targetId &&
                 (event.sourceQuestId == null || event.sourceQuestId == questId)
