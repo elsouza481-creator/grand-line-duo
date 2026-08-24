@@ -33,6 +33,8 @@ import grandlineduo.game.quest.QuestDirectorBridge
 import grandlineduo.game.quest.QuestEngine
 import grandlineduo.game.quest.QuestBossCoordinator
 import grandlineduo.game.quest.QuestHuntCoordinator
+import grandlineduo.game.quest.QuestFieldCoordinator
+import grandlineduo.game.quest.QuestFieldActionType
 import grandlineduo.game.scenario.StormglassCayScenario
 import grandlineduo.game.powers.PowerTechniqueEngine
 import grandlineduo.game.powers.PowerDiscoveryEngine
@@ -71,6 +73,12 @@ class StormglassGameplayCommandHandler(
         snapshotStore = snapshotStore,
         durableStore = durableStore,
     )
+    private val questFieldCoordinator = QuestFieldCoordinator(
+        hostReplica = hostReplica,
+        campaignSeed = seed,
+        snapshotStore = snapshotStore,
+        durableStore = durableStore,
+    )
     private val duelCoordinator = DuelCoordinator(
         hostReplica = hostReplica,
         campaignSeed = seed,
@@ -88,7 +96,9 @@ class StormglassGameplayCommandHandler(
             command is GameplayWireCommand.DuelAction ||
                 (command is GameplayWireCommand.QuestAction &&
                     (command.actionType.equals("START_BOSS", ignoreCase = true) ||
-                        command.actionType.equals("START_HUNT", ignoreCase = true))) ||
+                        command.actionType.equals("START_HUNT", ignoreCase = true) ||
+                        command.actionType.equals("EXPLORE_SITE", ignoreCase = true) ||
+                        command.actionType.equals("SEARCH_SUPPLIES", ignoreCase = true))) ||
                 (command is GameplayWireCommand.CombatAction && (
                     beforeExistingCheck.activeDuel != null ||
                         beforeExistingCheck.worldFlags[QuestHuntCoordinator.ACTIVE_QUEST_FLAG] != null ||
@@ -170,6 +180,26 @@ class StormglassGameplayCommandHandler(
                     command.commandId,
                     command.actorId,
                     command.questId,
+                    hostTimestamp,
+                )
+            }
+            if (command.actionType.equals("EXPLORE_SITE", ignoreCase = true)) {
+                require(command.amount == 1) { "Field quest action amount must be one" }
+                return questFieldCoordinator.attempt(
+                    command.commandId,
+                    command.actorId,
+                    command.questId,
+                    QuestFieldActionType.EXPLORE_SITE,
+                    hostTimestamp,
+                )
+            }
+            if (command.actionType.equals("SEARCH_SUPPLIES", ignoreCase = true)) {
+                require(command.amount == 1) { "Field quest action amount must be one" }
+                return questFieldCoordinator.attempt(
+                    command.commandId,
+                    command.actorId,
+                    command.questId,
+                    QuestFieldActionType.SEARCH_SUPPLIES,
                     hostTimestamp,
                 )
             }
