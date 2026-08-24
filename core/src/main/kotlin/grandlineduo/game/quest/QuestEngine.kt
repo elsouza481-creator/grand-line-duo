@@ -106,7 +106,7 @@ object QuestEngine {
         rewarded = applyItemReward(rewarded, current.definition.reward)
         rewarded = applyFactionReward(rewarded, current.definition.reward)
         rewarded = applyWorldFlagReward(rewarded, current.definition.reward)
-        return rewarded
+        return QuestFieldState.clear(rewarded, questId)
     }
 
     fun fail(world: WorldState, questId: String, reason: String): WorldState {
@@ -116,12 +116,13 @@ object QuestEngine {
         require(current.status == QuestStatus.ACTIVE || current.status == QuestStatus.READY_TO_TURN_IN) {
             "Quest cannot fail from ${current.status}"
         }
-        return world.copy(
+        val failed = world.copy(
             questBoard = world.questBoard.copy(
                 active = world.questBoard.active - questId,
                 failedQuestIds = world.questBoard.failedQuestIds + questId,
             ),
         )
+        return QuestFieldState.clear(failed, questId)
     }
 
     fun isEligible(world: WorldState, quest: QuestDefinition, actorId: String): Boolean =
