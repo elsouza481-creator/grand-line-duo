@@ -10,6 +10,7 @@ import grandlineduo.game.duel.DuelFinishReason
 import grandlineduo.game.duel.DuelPhase
 import grandlineduo.game.duel.DuelState
 import grandlineduo.game.quest.QuestDefinition
+import grandlineduo.game.quest.QuestFieldState
 import grandlineduo.game.quest.QuestProgress
 import grandlineduo.game.quest.QuestStatus
 import grandlineduo.game.quest.QuestType
@@ -146,6 +147,14 @@ object GamePresenter {
                 append("\n\n")
                 append(progressLine(progress))
                 append("\nRecompensa: ").append(rewardLabel(progress.definition))
+                if (progress.definition.type == QuestType.EXPLORE || progress.definition.type == QuestType.COLLECT) {
+                    if (progress.status == QuestStatus.ACTIVE && (world.players[actorId]?.energy ?: 0) <= 0) {
+                        append("\nRequer 1 PE para uma nova tentativa.")
+                    }
+                    QuestFieldState.readLast(world, progress.definition.questId)?.let { last ->
+                        append("\nÚltimo teste: ${last.actorId.uppercase()} • ${last.checkId} • d20 ${last.roll} ${signedModifier(last.modifier)} = ${last.total} vs CD ${last.difficultyClass} • ${if (last.success) "SUCESSO" else "FALHA"} • -1 PE")
+                    }
+                }
             }
             if (board.completedQuestIds.isNotEmpty() || board.failedQuestIds.isNotEmpty()) {
                 append("\n\nHISTÓRICO • concluídos ${board.completedQuestIds.size} • falhos ${board.failedQuestIds.size}")
@@ -171,7 +180,16 @@ object GamePresenter {
                                     add(GameAction("START_HUNT|${progress.definition.questId}|1", "$prefix • ${progress.definition.title}", "QUEST"))
                                 }
                             }
-                            else -> add(GameAction("PROGRESS|${progress.definition.questId}|1", "Registrar progresso • ${progress.definition.title}", "QUEST"))
+                            QuestType.EXPLORE -> if ((world.players[actorId]?.energy ?: 0) > 0) {
+                                val prefix = if (progress.progress == 0) "Explorar ruínas" else "Continuar exploração"
+                                add(GameAction("EXPLORE_SITE|${progress.definition.questId}|1", "$prefix • ${progress.definition.title}", "QUEST"))
+                            }
+                            QuestType.COLLECT -> if ((world.players[actorId]?.energy ?: 0) > 0) {
+                                val prefix = if (progress.progress == 0) "Buscar suprimentos" else "Continuar busca de suprimentos"
+                                add(GameAction("SEARCH_SUPPLIES|${progress.definition.questId}|1", "$prefix • ${progress.definition.title}", "QUEST"))
+                            }
+                            QuestType.RESCUE, QuestType.ESCORT, QuestType.INVESTIGATE ->
+                                add(GameAction("PROGRESS|${progress.definition.questId}|1", "Registrar progresso • ${progress.definition.title}", "QUEST"))
                         }
                     }
                     QuestStatus.READY_TO_TURN_IN -> add(GameAction("TURN_IN|${progress.definition.questId}|1", "Entregar contrato • ${progress.definition.title}", "QUEST"))
@@ -325,6 +343,8 @@ object GamePresenter {
             if (ship != null) add("Navio ${ship.hull}/${ship.maxHull} • Suprimentos ${ship.supplies}/${ship.maxSupplies}")
         }
     }
+
+    private fun signedModifier(value: Int): String = if (value >= 0) "+ $value" else "- ${-value}"
 
     private fun combatLabel(type: CombatActionType): String = when (type) {
         CombatActionType.ATTACK -> "Atacar"
