@@ -166,7 +166,103 @@ object QuestEngineTest {
                 assertEquals(0, accepted.questBoard.active.getValue(quest.questId).progress)
             }
         }
+
+        test("turn in clears only exact field state keys for resolved quest") {
+            val a = sampleQuest().copy(
+                questId = "field-clean-a",
+                type = QuestType.EXPLORE,
+                targetId = "forgotten-ruins",
+                requiredAmount = 3,
+            )
+            val b = sampleQuest().copy(
+                questId = "field-clean-b",
+                type = QuestType.COLLECT,
+                targetId = "medical-supplies",
+                requiredAmount = 4,
+            )
+            var world = cleanupWorld(
+                QuestProgress(a, QuestStatus.READY_TO_TURN_IN, 3, "p1"),
+                QuestProgress(b, QuestStatus.ACTIVE, 0, "p2"),
+            )
+            world = QuestFieldState.writeAttemptResult(world, a.questId, fieldResult(a, QuestFieldActionType.EXPLORE_SITE))
+            world = QuestFieldState.writeAttemptResult(world, b.questId, fieldResult(b, QuestFieldActionType.SEARCH_SUPPLIES))
+            world = world.copy(worldFlags = world.worldFlags + ("quest.field.last.roll.${a.questId}.shadow" to "keep"))
+
+            val next = QuestEngine.turnIn(world, a.questId)
+
+            assertEquals(0, QuestFieldState.attemptCount(next, a.questId))
+            assertEquals(null, QuestFieldState.readLast(next, a.questId))
+            assertEquals(1, QuestFieldState.attemptCount(next, b.questId))
+            assertTrue(QuestFieldState.readLast(next, b.questId) != null)
+            assertEquals("keep", next.worldFlags["quest.field.last.roll.${a.questId}.shadow"])
+        }
+
+        test("fail clears only exact field state keys for failed quest") {
+            val a = sampleQuest().copy(
+                questId = "field-fail-a",
+                type = QuestType.EXPLORE,
+                targetId = "forgotten-ruins",
+                requiredAmount = 3,
+            )
+            val b = sampleQuest().copy(
+                questId = "field-fail-b",
+                type = QuestType.COLLECT,
+                targetId = "medical-supplies",
+                requiredAmount = 4,
+            )
+            var world = cleanupWorld(
+                QuestProgress(a, QuestStatus.ACTIVE, 1, "p1"),
+                QuestProgress(b, QuestStatus.ACTIVE, 1, "p2"),
+            )
+            world = QuestFieldState.writeAttemptResult(world, a.questId, fieldResult(a, QuestFieldActionType.EXPLORE_SITE))
+            world = QuestFieldState.writeAttemptResult(world, b.questId, fieldResult(b, QuestFieldActionType.SEARCH_SUPPLIES))
+
+            val next = QuestEngine.fail(world, a.questId, "abandoned")
+
+            assertEquals(0, QuestFieldState.attemptCount(next, a.questId))
+            assertEquals(null, QuestFieldState.readLast(next, a.questId))
+            assertEquals(1, QuestFieldState.attemptCount(next, b.questId))
+            assertTrue(QuestFieldState.readLast(next, b.questId) != null)
+        }
+
+        test("resolving hunt with no field state preserves unrelated world flags") {
+            val hunt = sampleQuest()
+            val world = cleanupWorld(QuestProgress(hunt, QuestStatus.ACTIVE, 0, "p1")).copy(
+                worldFlags = mapOf("unrelated.flag" to "keep"),
+            )
+
+            val next = QuestEngine.fail(world, hunt.questId, "hunt defeat")
+
+            assertEquals("keep", next.worldFlags["unrelated.flag"])
+        }
     }
+
+    private fun fieldResult(quest: QuestDefinition, action: QuestFieldActionType) = QuestFieldAttemptResult(
+        actionType = action,
+        questId = quest.questId,
+        targetId = quest.targetId,
+        islandId = quest.islandId,
+        actorId = "p1",
+        attemptOrdinal = 1,
+        checkId = if (action == QuestFieldActionType.EXPLORE_SITE) "PER + PERCEPTION" else "INT + MEDICINE",
+        roll = 14,
+        modifier = 3,
+        total = 17,
+        difficultyClass = 10,
+        success = true,
+        objectiveEventType = if (action == QuestFieldActionType.EXPLORE_SITE) QuestObjectiveEventType.LOCATION_VISITED else QuestObjectiveEventType.ITEM_ACQUIRED,
+        progressAmount = 1,
+    )
+
+    private fun cleanupWorld(vararg progress: QuestProgress): WorldState = WorldState(
+        campaignId = "cleanup",
+        islandId = "shells-town",
+        players = mapOf(
+            "p1" to PlayerState("p1", "Kairo", 20, 20, 0, profile = profile("Navegador")),
+            "p2" to PlayerState("p2", "Mira", 20, 20, 0, profile = profile("Espadachim")),
+        ),
+        questBoard = QuestBoardState(active = progress.associateBy { it.definition.questId }),
+    )
 
     private fun sampleQuest(
         requirement: QuestRequirement = QuestRequirement(),
